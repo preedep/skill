@@ -4,10 +4,11 @@ Skill: Convert Control-M jobs to Apache Airflow DAGs
 This skill converts Control-M jobs (XML) to Apache Airflow DAGs. (DAGs python code)
 
 ## Input
-The input is a Control-M job XML file.
+The input is a Control-M job XML file and an optional config JSON file.
 
 ## Output
-The output is a Python script that defines an Apache Airflow DAG. must follow standard patterns
+The output is a Python script (DAG codes) but if input provide configuration json file , the output have `##KEY##` placeholders for env-specific values for change each environment not change code if input provide json configuration file **Never hardcode env-specific values directly in the DAG template** 
+
 
 | Pattern | Description |Example|
 |---------|-------------|------|
@@ -54,17 +55,6 @@ Translate Control-M date/variable expressions to Airflow Jinja templates:
 
 > For any unrecognised `%%` expression, emit it as a `# TODO:` comment and use a placeholder string.
 
-
-## Output Artifacts
-
-For each Control-M folder the agent produces **two files**:
-
-| Artifact | Path | Purpose |
-|----------|------|---------|
-| DAG template | `output/<dag_filename>.py` | Airflow DAG with `##KEY##` placeholders for env-specific values |
-| Config JSON | `output/config/<env>/<dag_filename>.json` | Env-specific values merged by DevOps pipeline via `generate_dag.py` |
-
-The DevOps pipeline runs `generate_dag.py` which replaces every `##KEY##` token in the DAG template with the corresponding value from the JSON config, producing the final deployable DAG. **Never hardcode env-specific values directly in the DAG template** — they must come from the config JSON via `##KEY##` placeholders.
 
 ### Config JSON Schema
 
