@@ -126,6 +126,178 @@ Follow the company DAG templates — see [`templates/`](templates/) for full wor
 - Always set `is_paused_upon_creation=not _active`
 - Callbacks wired via: `on_failure_callback=failure_callback if _enable_email_notification_fail else None`
 
+### Shell Script Guidelines
+
+Use for shell scripts embedded in SSHOperator tasks.
+
+#### General Rules
+
+* Generate production-ready shell scripts.
+* Use Bash-compatible syntax unless otherwise specified.
+* Scripts must be deterministic and rerun-safe.
+* Avoid interactive commands.
+* Avoid commands requiring TTY input.
+
+#### Script Format
+
+Embed shell scripts as Python raw triple-quoted strings to avoid backslash interpretation:
+
+```python
+command=r"""
+#!/usr/bin/env bash
+...
+"""
+```
+
+> Backslashes inside `r"""..."""` are literal — do not escape them further.
+
+#### Airflow Scheduling Semantics
+
+* Use Airflow logical date semantics instead of current system time.
+* Prefer `{{ ds }}` (YYYY-MM-DD) and `{{ ds_nodash }}` (YYYYMMDD) for date strings in file paths, filenames, and SQL parameters.
+* Use `{{ logical_date.strftime('%Y') }}`, `{{ logical_date.strftime('%m') }}`, `{{ logical_date.strftime('%d') }}` when individual date parts are needed.
+* **Never use bare `{{ logical_date }}` in file paths or date strings** — it renders as an ISO datetime with timezone offset (e.g. `2026-05-28T00:00:00+07:00`) which contains colons and is invalid in filenames on most systems.
+* Do not use `date`, `$(date)`, or runtime timestamps for business date calculations unless explicitly required.
+
+#### Error Handling
+
+Use `set -euo pipefail` at the top of every script. Scripts must invoke bash explicitly to guarantee pipefail support — use `#!/usr/bin/env bash` as the first line, or wrap via `bash -c '...'` in the SSHOperator `command=` parameter. Do not rely on the remote user's default login shell, which may be `/bin/sh` (POSIX only, no `pipefail`).
+
+* Validate critical commands explicitly.
+* Exit non-zero on failures.
+* Avoid silent failures.
+
+#### Logging
+
+Use clear logging:
+
+```bash
+echo "[INFO] ..."
+echo "[ERROR] ..."
+```
+
+Log: start, logical date, source/destination, completion, failure reason.
+
+#### File Operations
+
+* Validate file existence before transfer or processing.
+* Quote paths safely: `"$FILE_PATH"`
+
+#### FTP / SFTP / FTPS
+
+* Prefer non-interactive commands.
+* For `lftp`, use `set ssl:verify-certificate no` only when explicitly required by legacy systems.
+* Validate transfer results.
+
+#### SSHOperator Compatibility
+
+* Scripts must run correctly inside SSHOperator.
+* Avoid environment assumptions.
+* Use absolute paths whenever possible.
+
+#### Security
+
+* Never hardcode passwords.
+* Use Airflow Variables or Connections.
+* Avoid printing secrets to logs.
+
+#### Output Requirements
+
+* Produce complete runnable scripts.
+* Do not generate pseudocode.
+* Do not omit required variables.
+* Keep scripts enterprise-readable and maintainable.
+
+### PowerShell Guidelines
+
+Use for PowerShell scripts embedded in PsrpOperator tasks.
+
+#### General Rules
+
+* Generate production-ready PowerShell.
+* Use PowerShell-compatible syntax.
+* Scripts must be deterministic and rerun-safe.
+* Avoid interactive prompts.
+* Avoid GUI-dependent commands.
+
+#### Script Format
+
+Use raw multiline string to avoid backslash interpretation in Windows paths:
+
+```python
+powershell = r"""
+...
+"""
+```
+
+> Backslashes inside `r"""..."""` are literal — do not escape them further. Step 6's "ensure backslashes are escaped" rule does **not** apply inside an r-string; the r-prefix is the correct and sufficient form.
+
+#### Airflow Scheduling Semantics
+
+* Use Airflow logical date semantics instead of runtime system time.
+* Prefer `{{ ds }}` (YYYY-MM-DD) and `{{ ds_nodash }}` (YYYYMMDD) for date strings in file paths, filenames, and SQL parameters.
+* Use `{{ logical_date.strftime('%Y') }}`, `{{ logical_date.strftime('%m') }}` etc. when individual date parts are needed.
+* **Never use bare `{{ logical_date }}` in file paths or date strings** — it renders as an ISO datetime with timezone offset (e.g. `2026-05-28T00:00:00+07:00`) which is invalid in Windows filenames.
+* Do not use `Get-Date` for business date calculations unless explicitly required.
+
+#### Control-M Migration Rules
+
+* Treat Control-M `%%ODATE` / `%%$ODATE` as `{{ ds_nodash }}` (YYYYMMDD) — consistent with the Variable Substitution Reference table. Do **not** substitute ODATE with bare `{{ logical_date }}`.
+* Ensure rerun/backfill behavior remains deterministic.
+* Preserve original scheduling semantics where possible.
+
+#### Error Handling
+
+Set `$ErrorActionPreference = 'Stop'` at the top of every script so that PowerShell cmdlet failures (non-terminating errors from `Copy-Item`, `Invoke-WebRequest`, etc.) are promoted to terminating exceptions. Then validate external executable exit codes:
+
+```powershell
+$ErrorActionPreference = 'Stop'
+
+# ... script body ...
+
+if ($LASTEXITCODE -ne 0) {
+    Write-Host "ERROR: ..."
+    exit 1
+}
+```
+
+Do not allow silent failures.
+
+#### Logging
+
+Use `Write-Host "..."`. Log: start, logical date, source/destination, completion, failure reason.
+
+#### File Operations
+
+* Validate file existence before transfer or processing.
+* Use properly quoted Windows paths: `"D:\path\file.txt"`
+
+#### FTP / SFTP / FTPS
+
+* Prefer `lftp` for FTP, SFTP, and FTPS transfers — it supports all three protocols (`ftp://`, `sftp://`, `ftps://` schemes).
+* For SFTP: `lftp -e "mirror/get/put ...; quit" sftp://host`
+* Use `set ssl:verify-certificate no` only for legacy environments when required.
+* Validate every transfer result.
+
+#### PsrpOperator Compatibility
+
+* Scripts must run correctly inside PsrpOperator.
+* Avoid assumptions about user profiles or session persistence.
+* Use absolute paths whenever possible.
+
+#### Security
+
+* Never hardcode credentials.
+* Use Airflow Variables or Connections.
+* Do not print secrets in logs.
+
+#### Output Requirements
+
+* Produce complete runnable PowerShell scripts.
+* Do not generate pseudocode.
+* Do not omit required variables.
+* Keep scripts enterprise-readable and maintainable.
+
 
 ## Setup
 
