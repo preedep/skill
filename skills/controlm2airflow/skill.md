@@ -101,23 +101,23 @@ pip install apache-airflow \
 
 > **When to consult the templates:** Read the matching template when generating a task operator — e.g. `templates/ssh-remote-unix/` for `OS`/Unix jobs, `templates/file-transfer-onprem-onprem-unix/` for `FILE_TRANS` Unix→Unix, `templates/psrp-operator/` for Windows jobs. Use the template's variable zone, callback, and `default_args` patterns as the baseline.
 
-
 ## Control-M Appl_Type / Job Type Mapping - Airflow Pattern Reference
-L = Left , R = Right (Left is the source, Right is the target)
 1. APPL_TYPE = `FILE_TRANS`
   - Check variables FTP-*
+  - L = Left , R = Right (Left is the source, Right is the target)
   - FTP_<L or R>OSTYPE is Operating System type (ex. Windows , Unix)
-  - if Operating System is Unix/Linux then use SSHOperator  to remote to Left Host and that script 
-      - run pre-command if need which run via `bash` operator
-      - run the comand file transfer which depend on Right Host via `bash` operator
+  - if Operating System is Unix/Linux then use `SSHOperator` or Windows uses `PsrpOperator` to remote to Left Host and run script/command  
+      - run pre-command if need which run via `bash` or `powershell` operator
+      - run the comand file transfer which depend on Right Host via `bash` or `powershell` operator
         | Right Host: | Command |
         | ----------- | ------ |
         | Windows/Unix/Linux | lftp|
         | Azure |azcopy |
         | AWS |aws s3 cp/sync |
-      - run post-command if need which run via `bash` operator    
+      - run post-command if need which run via `bash` or `powershell` operator
 2. APPL_TYPE = `OS`
   - Check variable CMDLINE 
+  - if Operating System is Unix/Linux then use `bash` or Windows uses `powershell` operator to run the command
 3. APPL_TYPE = `FileWatch`
   - Check variable FileWatch-*
   - Uses Airflow *Sensor 
