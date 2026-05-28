@@ -24,6 +24,36 @@ The output is a Python script that defines an Apache Airflow DAG. must follow st
 | SLA Alert | uses DeadlineAlert of Airflow 3.x  | `DeadlineAlert` |
 
 
+## Behavior
+1. Parse the input XML and extract all Control-M folder and job metadata.
+2. Group jobs by folder — each folder produces one DAG file.
+3. For each folder:
+   a. Derive DAG file name and DAG ID from `<company>-<app_id>-<app_code>-<folder_name>-<env>` (lowercased).
+   b. Map the folder's schedule to an Airflow `schedule` parameter and default timezone is "Asia/Bangkok".
+   c. For each job in the folder, create one Airflow task:
+      - Derive task ID from `<app_id>-<app_code>-task_<job_name>-<period>` (lowercased).
+      - Select the operator based on job type (see Constraints).
+      - Match job type (Appl_Type) with pattern `Control-M Appl_Type Mapping - Airflow Pattern Reference`
+      - Apply SLA if defined on the job which is converted to `DeadlineAlert` (new standard in airflow 3.x).
+      - Wire `on_failure_callback` to the standard alert hook.
+      - Write comments 'control-m configuration' of the control-mjob to the task location.
+   d. Build task dependencies from Control-M job dependencies (`INCOND`/`OUTCOND`) which refer to reference `Dependency Mapping — INCOND/OUTCOND Pattern Reference` find job dependencies in the same folder.
+   e. Add `ExternalTaskSensor` for any dependency referencing a job outside this folder.
+4. Coding style refer to `Coding Style`
+5. Write the generated DAG to a `.py` file.
+6. Verify the generated DAG by running `python <output_file>.py` inside the `.venv` (see Setup) — this catches both syntax errors and import errors. Fix all errors before finishing.
+7. For any unsupported job type, emit a `# TODO:` comment at the task location and log a warning.
+
+
+## Constraints & Assumptions
+- One Control-M folder = one DAG file
+- *Sensor* for priority selection => derferable mode -> reschedule -> poke
+- Unsupported job types emit a `# TODO:` comment in the output and log a warning
+- All identifiers lowercased
+- Target: Airflow 3.x with classic operators (no Taskflow API)
+- Generated DAG must pass `python <dag>.py` (inside `.venv`) with no errors before it is considered complete
+
+
 ## Coding style
 
 Follow the company DAG templates — see [`templates/`](templates/) for full working examples.
@@ -45,32 +75,23 @@ Follow the company DAG templates — see [`templates/`](templates/) for full wor
 - Callbacks wired via: `on_failure_callback=failure_callback if _enable_email_notification_fail else None`
 
 
-## Behavior
-1. Parse the input XML and extract all Control-M folder and job metadata.
-2. Group jobs by folder — each folder produces one DAG file.
-3. For each folder:
-   a. Derive DAG file name and DAG ID from `<company>-<app_id>-<app_code>-<folder_name>-<env>` (lowercased).
-   b. Map the folder's schedule to an Airflow `schedule` parameter and default timezone is "Asia/Bangkok".
-   c. For each job in the folder, create one Airflow task:
-      - Derive task ID from `<app_id>-<app_code>-task_<job_name>-<period>` (lowercased).
-      - Select the operator based on job type (see Constraints).
-      - Match job type (Appl_Type) with pattern `Control-M Appl_Type Mapping - Airflow Pattern Reference`  
-      - Apply SLA if defined on the job which is converted to `DeadlineAlert` (new standard in airflow 3.x).
-      - Wire `on_failure_callback` to the standard alert hook.
-      - Write comments 'control-m configuration' of the control-mjob to the task location.
-   d. Build task dependencies from Control-M job dependencies (`INCOND`/`OUTCOND`) which refer to reference `Dependency Mapping — INCOND/OUTCOND Pattern Reference` find job dependencies in the same folder.
-   e. Add `ExternalTaskSensor` for any dependency referencing a job outside this folder.
-4. Coding stype refer to `Coding Style`
-5. Write the generated DAG to a `.py` file.
-6. For any unsupported job type, emit a `# TODO:` comment at the task location and log a warning.
+## Setup
 
+Create a virtual environment and install Airflow with the required providers before generating or verifying DAGs.
 
-## Constraints & Assumptions
-- One Control-M folder = one DAG file
-- *Sensor* for priority selection => derferable mode -> reschedule -> poke
-- Unsupported job types emit a `# TODO:` comment in the output and log a warning
-- All identifiers lowercased
-- Target: Airflow 3.x with classic operators (no Taskflow API)
+```bash
+python -m venv .venv
+source .venv/bin/activate
+pip install apache-airflow \
+    apache-airflow-providers-ssh \
+    apache-airflow-providers-microsoft-psrp \
+    apache-airflow-providers-cncf-kubernetes \
+    apache-airflow-providers-amazon \
+    pendulum
+```
+
+> This venv is used for DAG syntax verification (step 6 in Behavior). It does not need a running Airflow instance — import-level validation via `python <dag>.py` is sufficient.
+
 
 ## Reference
 - [`controlm-schema.xsd`](controlm-schema.xsd) — official Control-M XML schema (DEFTABLE, FOLDER, SMART_FOLDER, JOB, INCOND, OUTCOND, VARIABLE, etc.)
@@ -80,10 +101,11 @@ Follow the company DAG templates — see [`templates/`](templates/) for full wor
 
 > **When to consult the templates:** Read the matching template when generating a task operator — e.g. `templates/ssh-remote-unix/` for `OS`/Unix jobs, `templates/file-transfer-onprem-onprem-unix/` for `FILE_TRANS` Unix→Unix, `templates/psrp-operator/` for Windows jobs. Use the template's variable zone, callback, and `default_args` patterns as the baseline.
 
+
 ## Control-M Appl_Type / Job Type Mapping - Airflow Pattern Reference
 L = Left , R = Right (Left is the source, Right is the target)
 1. APPL_TYPE = `FILE_TRANS`
-  - Check variables FTP_*
+  - Check variables FTP-*
   - FTP_<L or R>OSTYPE is Operating System type (ex. Windows , Unix)
   - if Operating System is Unix/Linux then use SSHOperator  to remote to Left Host and that script 
       - run pre-command if need which run via `bash` operator
@@ -96,7 +118,12 @@ L = Left , R = Right (Left is the source, Right is the target)
       - run post-command if need which run via `bash` operator    
 2. APPL_TYPE = `OS`
   - Check variable CMDLINE 
-
+3. APPL_TYPE = `FileWatch`
+  - Check variable FileWatch-*
+  - Uses Airflow *Sensor 
+  - TIME_LIMIT is sensor timeout
+  - poke_interval = TIME_LIMIT/NUM_OF_ITERATIONS
+  - START_TIME = DAG schedule
 
 
 ## Dependency Mapping — INCOND/OUTCOND Pattern Reference
