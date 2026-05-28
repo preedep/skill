@@ -48,6 +48,9 @@ skill/
 - Integration tests go in `tests/`.
 - Run `cargo test` before committing.
 
+## Constraints 
+- Not save or use real company data to git.
+
 ## Owner
 
 Preedee@Digital.Dev — MIT License 2026

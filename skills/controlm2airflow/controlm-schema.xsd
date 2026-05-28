@@ -1,0 +1,1142 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<xs:schema
+  xmlns:xs="http://www.w3.org/2001/XMLSchema"
+  elementFormDefault="qualified"
+  attributeFormDefault="unqualified">
+    <xs:complexType name="Workspace">
+        <xs:sequence minOccurs="0" maxOccurs="1"><xs:choice>
+            <xs:element name="ADDITIONAL_WORKSPACE_DETAILS" type="ClientData" minOccurs="0" maxOccurs="unbounded"/>
+        </xs:choice></xs:sequence>
+        <xs:attribute name="ID" type="xs:int" use="optional"/>
+        <xs:attribute name="TYPE" use="optional">
+    <xs:simpleType>
+        <xs:restriction base = "xs:string">
+            <xs:enumeration value="UNKNOWN"/>
+            <xs:enumeration value="REGULAR"/>
+            <xs:enumeration value="REQUEST"/>
+            <xs:enumeration value="PROMOTION"/>
+        </xs:restriction>
+    </xs:simpleType>
+        </xs:attribute>
+        <xs:attribute name="STATE" use="optional">
+    <xs:simpleType>
+        <xs:restriction base = "xs:string">
+            <xs:enumeration value="WSSTATE_UNKNOWN"/>
+            <xs:enumeration value="WSSTATE_EndUserWorks"/>
+            <xs:enumeration value="WSSTATE_Submitted"/>
+            <xs:enumeration value="WSSTATE_SchedulerWorks"/>
+            <xs:enumeration value="WSSTATE_Rejected"/>
+            <xs:enumeration value="WSSTATE_Approved"/>
+            <xs:enumeration value="WSSTATE_CheckedIn"/>
+        </xs:restriction>
+    </xs:simpleType>
+        </xs:attribute>
+        <xs:attribute name="NAME" type="xs:string" use="optional"/>
+        <xs:attribute name="DESCRIPTION" type="xs:string" use="optional"/>
+        <xs:attribute name="OWNER" type="xs:string" use="optional"/>
+        <xs:attribute name="CREATED_TIME" type="xs:string" use="optional"/>
+        <xs:attribute name="UPDATED_TIME" type="xs:string" use="optional"/>
+        <xs:attribute name="CHANGE_TICKET_ID" type="xs:string" use="optional"/>
+        <xs:attribute name="ASSOCIATED_END_USER" type="xs:string" use="optional"/>
+        <xs:attribute name="TRANSFER_SIDE_TIMESTAMP" type="xs:string" use="optional"/>
+        <xs:attribute name="EMAIL_RECIPIENT" type="xs:string" use="optional"/>
+    </xs:complexType>
+<!-- Global Type definitions Start -->
+    <xs:complexType name="WCMNote">
+        <xs:sequence minOccurs="0" maxOccurs="unbounded">
+            <xs:choice>
+            </xs:choice>
+        </xs:sequence>
+        <xs:attribute name="MESSAGE" type="xs:string" use="optional"/>
+        <xs:attribute name="TIME_STAMP" type="xs:string" use="optional"/>
+        <xs:attribute name="NOTE_CREATOR" use="optional">
+    <xs:simpleType>
+        <xs:restriction base = "xs:string">
+            <xs:enumeration value="REQUESTER"/>
+            <xs:enumeration value="SCHEDULER"/>
+        </xs:restriction>
+    </xs:simpleType>
+        </xs:attribute>
+        <xs:attribute name="USER_NAME" type="xs:string" use="optional"/>
+    </xs:complexType>
+    <xs:complexType name="WCMNotesData">
+        <xs:sequence minOccurs="0" maxOccurs="unbounded">
+            <xs:choice>
+            <xs:element name="NOTE_HISTORY" type="WCMNote" minOccurs="0" maxOccurs="unbounded"/>
+            </xs:choice>
+        </xs:sequence>
+        <xs:attribute name="NOTES_STATUS" use="optional">
+    <xs:simpleType>
+        <xs:restriction base = "xs:string">
+            <xs:enumeration value="NOTSET"/>
+            <xs:enumeration value="OPEN"/>
+            <xs:enumeration value="APPROVED"/>
+        </xs:restriction>
+    </xs:simpleType>
+        </xs:attribute>
+        <xs:attribute name="MESSAGE_DRAFT" type="xs:string" use="optional"/>
+    </xs:complexType>
+    <xs:complexType name="JobData">
+        <xs:sequence minOccurs="0" maxOccurs="unbounded">
+            <xs:choice>
+            <xs:element name="ADDITIONAL_JOB_DETAILS" type="JobClientData" minOccurs="0" maxOccurs="unbounded"/>
+            <xs:element name="AUTOEDIT2" type="SetVarData" minOccurs="0" maxOccurs="unbounded"/>
+            <xs:element name="AUTOEDIT" type="SetVarDataOld" minOccurs="0" maxOccurs="unbounded"/>
+            <xs:element name="VARIABLE" type="SetVarData" minOccurs="0" maxOccurs="unbounded"/>
+            <xs:element name="SHOUT" type="ShoutData" minOccurs="0" maxOccurs="unbounded"/>
+            <xs:element name="CONTROL" type="ControlResourceData" minOccurs="0" maxOccurs="unbounded"/>
+            <xs:element name="INCOND" type="InConditionData" minOccurs="0" maxOccurs="unbounded"/>
+            <xs:element name="QUANTITATIVE" type="QuantitativeResourceData" minOccurs="0" maxOccurs="unbounded"/>
+            <xs:element name="OUTCOND" type="OutConditionData" minOccurs="0" maxOccurs="unbounded"/>
+            <xs:element name="STEP_RANGE" type="StepRangeData" minOccurs="0" maxOccurs="unbounded"/>
+            <xs:element name="RULE_BASED_CALENDAR" type="TagData" minOccurs="0" maxOccurs="unbounded"/>
+            <xs:element name="TAG" type="TagData" minOccurs="0" maxOccurs="unbounded"/>
+            <xs:element name="RULE_BASED_CALENDARS" type="JobTagData" minOccurs="0" maxOccurs="unbounded"/>
+            <xs:element name="TAG_NAMES" type="JobTagData" minOccurs="0" maxOccurs="unbounded"/>
+            <xs:element name="ON" type="OnData" minOccurs="0" maxOccurs="unbounded"/>
+            <xs:element name="ON_TABLE" type="OnData" minOccurs="0" maxOccurs="unbounded"/>
+            <xs:element name="ON_GROUP" type="OnData" minOccurs="0" maxOccurs="unbounded"/>
+            <xs:element name="CAPTURE" type="CaptureData" minOccurs="0" maxOccurs="unbounded"/>
+            </xs:choice>
+        </xs:sequence>
+        <xs:attribute name="JOBISN" type="xs:int" use="optional"/>
+        <xs:attribute name="APPLICATION" type="xs:string" use="optional"/>
+        <xs:attribute name="SUB_APPLICATION" type="xs:string" use="optional"/>
+        <xs:attribute name="GROUP" type="xs:string" use="optional"/>
+        <xs:attribute name="MEMNAME" type="xs:string" use="optional"/>
+        <xs:attribute name="JOBNAME" type="xs:string" use="optional"/>
+        <xs:attribute name="DESCRIPTION" type="xs:string" use="optional"/>
+        <xs:attribute name="CREATED_BY" type="xs:string" use="optional"/>
+        <xs:attribute name="AUTHOR" type="xs:string" use="optional"/>
+        <xs:attribute name="RUN_AS" type="xs:string" use="optional"/>
+        <xs:attribute name="OWNER" type="xs:string" use="optional"/>
+        <xs:attribute name="PRIORITY" type="xs:string" use="optional"/>
+        <xs:attribute name="CRITICAL" type="xs:string" use="optional"/>
+        <xs:attribute name="TASKTYPE" type="xs:string" use="optional"/>
+        <xs:attribute name="CYCLIC" type="xs:string" use="optional"/>
+        <xs:attribute name="NODEID" type="xs:string" use="optional"/>
+        <xs:attribute name="DOCLIB" type="xs:string" use="optional"/>
+        <xs:attribute name="DOCMEM" type="xs:string" use="optional"/>
+        <xs:attribute name="INTERVAL" type="xs:string" use="optional"/>
+        <xs:attribute name="OVERRIDE_PATH" type="xs:string" use="optional"/>
+        <xs:attribute name="OVERLIB" type="xs:string" use="optional"/>
+        <xs:attribute name="MEMLIB" type="xs:string" use="optional"/>
+        <xs:attribute name="CMDLINE" type="xs:string" use="optional"/>
+        <xs:attribute name="CONFIRM" type="xs:string" use="optional"/>
+        <xs:attribute name="DAYSCAL" type="xs:string" use="optional"/>
+        <xs:attribute name="WEEKSCAL" type="xs:string" use="optional"/>
+        <xs:attribute name="CONFCAL" type="xs:string" use="optional"/>
+        <xs:attribute name="RETRO" type="xs:string" use="optional"/>
+        <xs:attribute name="MAXWAIT" type="xs:int" use="optional"/>
+        <xs:attribute name="MAXRERUN" type="xs:int" use="optional"/>
+        <xs:attribute name="AUTOARCH" type="xs:string" use="optional"/>
+        <xs:attribute name="MAXDAYS" type="xs:int" use="optional"/>
+        <xs:attribute name="MAXRUNS" type="xs:int" use="optional"/>
+        <xs:attribute name="TIMEFROM" type="xs:string" use="optional"/>
+        <xs:attribute name="TIMETO" type="xs:string" use="optional"/>
+        <xs:attribute name="DAYS" type="xs:string" use="optional"/>
+        <xs:attribute name="WEEKDAYS" type="xs:string" use="optional"/>
+        <xs:attribute name="JAN" type="xs:string" use="optional"/>
+        <xs:attribute name="FEB" type="xs:string" use="optional"/>
+        <xs:attribute name="MAR" type="xs:string" use="optional"/>
+        <xs:attribute name="APR" type="xs:string" use="optional"/>
+        <xs:attribute name="MAY" type="xs:string" use="optional"/>
+        <xs:attribute name="JUN" type="xs:string" use="optional"/>
+        <xs:attribute name="JUL" type="xs:string" use="optional"/>
+        <xs:attribute name="AUG" type="xs:string" use="optional"/>
+        <xs:attribute name="SEP" type="xs:string" use="optional"/>
+        <xs:attribute name="OCT" type="xs:string" use="optional"/>
+        <xs:attribute name="NOV" type="xs:string" use="optional"/>
+        <xs:attribute name="DEC" type="xs:string" use="optional"/>
+        <xs:attribute name="DATE" type="xs:string" use="optional"/>
+        <xs:attribute name="RERUNMEM" type="xs:string" use="optional"/>
+        <xs:attribute name="DAYS_AND_OR" type="xs:string" use="optional"/>
+        <xs:attribute name="CATEGORY" type="xs:string" use="optional"/>
+        <xs:attribute name="SHIFT" type="xs:string" use="optional"/>
+        <xs:attribute name="SHIFTNUM" type="xs:string" use="optional"/>
+        <xs:attribute name="PDSNAME" type="xs:string" use="optional"/>
+        <xs:attribute name="MINIMUM" type="xs:string" use="optional"/>
+        <xs:attribute name="PREVENTNCT2" type="xs:string" use="optional"/>
+        <xs:attribute name="OPTION" type="xs:string" use="optional"/>
+        <xs:attribute name="FROM" type="xs:string" use="optional"/>
+        <xs:attribute name="PAR" type="xs:string" use="optional"/>
+        <xs:attribute name="SYSDB" type="xs:string" use="optional"/>
+        <xs:attribute name="DUE_OUT" type="xs:string" use="optional"/>
+        <xs:attribute name="RETEN_DAYS" type="xs:string" use="optional"/>
+        <xs:attribute name="RETEN_GEN" type="xs:string" use="optional"/>
+        <xs:attribute name="TASK_CLASS" type="xs:string" use="optional"/>
+        <xs:attribute name="PREV_DAY" type="xs:string" use="optional"/>
+        <xs:attribute name="ADJUST_COND" type="xs:string" use="optional"/>
+        <xs:attribute name="JOBS_IN_GROUP" type="xs:string" use="optional"/>
+        <xs:attribute name="LARGE_SIZE" type="xs:string" use="optional"/>
+        <xs:attribute name="IND_CYCLIC" type="xs:string" use="optional"/>
+        <xs:attribute name="CREATION_USER" type="xs:string" use="optional"/>
+        <xs:attribute name="CREATION_DATE" type="xs:string" use="optional"/>
+        <xs:attribute name="CREATION_TIME" type="xs:string" use="optional"/>
+        <xs:attribute name="CHANGE_USERID" type="xs:string" use="optional"/>
+        <xs:attribute name="CHANGE_DATE" type="xs:string" use="optional"/>
+        <xs:attribute name="CHANGE_TIME" type="xs:string" use="optional"/>
+        <xs:attribute name="JOB_VERSION" type="xs:string" use="optional"/>
+        <xs:attribute name="RULE_BASED_CALENDAR_RELATIONSHIP" type="xs:string" use="optional"/>
+        <xs:attribute name="TAG_RELATIONSHIP" type="xs:string" use="optional"/>
+        <xs:attribute name="TIMEZONE" type="xs:string" use="optional"/>
+        <xs:attribute name="APPL_TYPE" type="xs:string" use="optional"/>
+        <xs:attribute name="APPL_VER" type="xs:string" use="optional"/>
+        <xs:attribute name="APPL_FORM" type="xs:string" use="optional"/>
+        <xs:attribute name="CM_VER" type="xs:string" use="optional"/>
+        <xs:attribute name="MULTY_AGENT" type="xs:string" use="optional"/>
+        <xs:attribute name="ACTIVE_FROM" type="xs:string" use="optional"/>
+        <xs:attribute name="ACTIVE_TILL" type="xs:string" use="optional"/>
+        <xs:attribute name="SCHEDULING_ENVIRONMENT" type="xs:string" use="optional"/>
+        <xs:attribute name="SYSTEM_AFFINITY" type="xs:string" use="optional"/>
+        <xs:attribute name="REQUEST_NJE_NODE" type="xs:string" use="optional"/>
+        <xs:attribute name="STAT_CAL" type="xs:string" use="optional"/>
+        <xs:attribute name="INSTREAM_JCL" type="xs:string" use="optional"/>
+        <xs:attribute name="USE_INSTREAM_JCL" type="xs:string" use="optional"/>
+        <xs:attribute name="DUE_OUT_DAYSOFFSET" type="xs:string" use="optional"/>
+        <xs:attribute name="FROM_DAYSOFFSET" type="xs:string" use="optional"/>
+        <xs:attribute name="TO_DAYSOFFSET" type="xs:string" use="optional"/>
+        <xs:attribute name="VERSION_OPCODE" type="xs:string" use="optional"/>
+        <xs:attribute name="IS_CURRENT_VERSION" type="xs:string" use="optional"/>
+        <xs:attribute name="VERSION_SERIAL" type="xs:int" use="optional"/>
+        <xs:attribute name="VERSION_HOST" type="xs:string" use="optional"/>
+        <xs:attribute name="CYCLIC_INTERVAL_SEQUENCE" type="xs:string" use="optional"/>
+        <xs:attribute name="CYCLIC_TIMES_SEQUENCE" type="xs:string" use="optional"/>
+        <xs:attribute name="CYCLIC_TOLERANCE" type="xs:int" use="optional"/>
+        <xs:attribute name="CYCLIC_TYPE" type="xs:string" use="optional"/>
+        <xs:attribute name="PARENT_FOLDER" type="xs:string" use="optional"/>
+        <xs:attribute name="PARENT_TABLE" type="xs:string" use="optional"/>
+        <xs:attribute name="END_FOLDER" type="xs:string" use="optional"/>
+        <xs:attribute name="ODATE" type="xs:string" use="optional"/>
+        <xs:attribute name="FPROCS" type="xs:string" use="optional"/>
+        <xs:attribute name="TPGMS" type="xs:string" use="optional"/>
+        <xs:attribute name="TPROCS" type="xs:string" use="optional"/>
+    </xs:complexType>
+    <xs:complexType name="SetVarData">
+        <xs:attribute name="NAME" type="xs:string" use="optional"/>
+        <xs:attribute name="VALUE" type="xs:string" use="optional"/>
+    </xs:complexType>
+    <xs:complexType name="ShoutData">
+        <xs:attribute name="WHEN" type="xs:string" use="optional"/>
+        <xs:attribute name="TIME" type="xs:string" use="optional"/>
+        <xs:attribute name="URGENCY" type="xs:string" use="optional"/>
+        <xs:attribute name="DEST" type="xs:string" use="optional"/>
+        <xs:attribute name="MESSAGE" type="xs:string" use="optional"/>
+        <xs:attribute name="DAYSOFFSET" type="xs:string" use="optional"/>
+    </xs:complexType>
+    <xs:complexType name="ControlResourceData">
+        <xs:attribute name="NAME" type="xs:string" use="optional"/>
+        <xs:attribute name="TYPE" type="xs:string" use="optional"/>
+        <xs:attribute name="ONFAIL" type="xs:string" use="optional"/>
+    </xs:complexType>
+    <xs:complexType name="InConditionData">
+        <xs:attribute name="NAME" type="xs:string" use="optional"/>
+        <xs:attribute name="ODATE" type="xs:string" use="optional"/>
+        <xs:attribute name="AND_OR" type="xs:string" use="optional"/>
+        <xs:attribute name="OP" type="xs:string" use="optional"/>
+    </xs:complexType>
+    <xs:complexType name="QuantitativeResourceData">
+        <xs:attribute name="NAME" type="xs:string" use="optional"/>
+        <xs:attribute name="QUANT" type="xs:int" use="optional"/>
+        <xs:attribute name="ONFAIL" type="xs:string" use="optional"/>
+        <xs:attribute name="ONOK" type="xs:string" use="optional"/>
+    </xs:complexType>
+    <xs:complexType name="OutConditionData">
+        <xs:attribute name="NAME" type="xs:string" use="optional"/>
+        <xs:attribute name="ODATE" type="xs:string" use="optional"/>
+        <xs:attribute name="SIGN" type="xs:string" use="optional"/>
+    </xs:complexType>
+    <xs:complexType name="CtbStepData">
+    </xs:complexType>
+    <xs:complexType name="StepRangeData">
+        <xs:attribute name="NAME" type="xs:string" use="optional"/>
+        <xs:attribute name="FPGMS" type="xs:string" use="optional"/>
+        <xs:attribute name="FPROCS" type="xs:string" use="optional"/>
+        <xs:attribute name="TPGMS" type="xs:string" use="optional"/>
+        <xs:attribute name="TPROCS" type="xs:string" use="optional"/>
+    </xs:complexType>
+    <xs:complexType name="TagData">
+        <xs:attribute name="NAME" type="xs:string" use="optional"/>
+        <xs:attribute name="TAG_NAME" type="xs:string" use="optional"/>
+        <xs:attribute name="MAXWAIT" type="xs:string" use="optional"/>
+        <xs:attribute name="DAYS_AND_OR" type="xs:string" use="optional"/>
+        <xs:attribute name="JAN" type="xs:string" use="optional"/>
+        <xs:attribute name="FEB" type="xs:string" use="optional"/>
+        <xs:attribute name="MAR" type="xs:string" use="optional"/>
+        <xs:attribute name="APR" type="xs:string" use="optional"/>
+        <xs:attribute name="MAY" type="xs:string" use="optional"/>
+        <xs:attribute name="JUN" type="xs:string" use="optional"/>
+        <xs:attribute name="JUL" type="xs:string" use="optional"/>
+        <xs:attribute name="AUG" type="xs:string" use="optional"/>
+        <xs:attribute name="SEP" type="xs:string" use="optional"/>
+        <xs:attribute name="OCT" type="xs:string" use="optional"/>
+        <xs:attribute name="NOV" type="xs:string" use="optional"/>
+        <xs:attribute name="DEC" type="xs:string" use="optional"/>
+        <xs:attribute name="DAYSCAL" type="xs:string" use="optional"/>
+        <xs:attribute name="WEEKSCAL" type="xs:string" use="optional"/>
+        <xs:attribute name="CONFCAL" type="xs:string" use="optional"/>
+        <xs:attribute name="SHIFT" type="xs:string" use="optional"/>
+        <xs:attribute name="SHIFTNUM" type="xs:string" use="optional"/>
+        <xs:attribute name="RETRO" type="xs:string" use="optional"/>
+        <xs:attribute name="DATE" type="xs:string" use="optional"/>
+        <xs:attribute name="DAYS" type="xs:string" use="optional"/>
+        <xs:attribute name="WEEKDAYS" type="xs:string" use="optional"/>
+        <xs:attribute name="ACTIVE_FROM" type="xs:string" use="optional"/>
+        <xs:attribute name="TAGS_ACTIVE_FROM" type="xs:string" use="optional"/>
+        <xs:attribute name="ACTIVE_TILL" type="xs:string" use="optional"/>
+        <xs:attribute name="TAGS_ACTIVE_TILL" type="xs:string" use="optional"/>
+        <xs:attribute name="LEVEL" type="xs:string" use="optional"/>
+    </xs:complexType>
+    <xs:complexType name="JobTagData">
+        <xs:attribute name="NAME" type="xs:string" use="optional"/>
+        <xs:attribute name="TAG_NAME" type="xs:string" use="optional"/>
+    </xs:complexType>
+    <xs:complexType name="OnData">
+        <xs:sequence minOccurs="0" maxOccurs="unbounded">
+            <xs:choice>
+            <xs:element name="DO" type="DoActionData" minOccurs="0" maxOccurs="unbounded"/>
+            <xs:element name="DO_TABLE" type="DoActionData" minOccurs="0" maxOccurs="unbounded"/>
+            <xs:element name="DO_GROUP" type="DoActionData" minOccurs="0" maxOccurs="unbounded"/>
+            <xs:element name="DOACTION" type="DoActionData" minOccurs="0" maxOccurs="unbounded"/>
+            <xs:element name="ACTION" type="DoActionData" minOccurs="0" maxOccurs="unbounded"/>
+            <xs:element name="DOCOND" type="DoCondData" minOccurs="0" maxOccurs="unbounded"/>
+            <xs:element name="DOCTBRULE" type="DoCtbRuleData" minOccurs="0" maxOccurs="unbounded"/>
+            <xs:element name="DOFORCEJOB" type="DoForceJobData" minOccurs="0" maxOccurs="unbounded"/>
+            <xs:element name="DOIFRERUN" type="DoIfRerunData" minOccurs="0" maxOccurs="unbounded"/>
+            <xs:element name="DOMAIL" type="DoMailData" minOccurs="0" maxOccurs="unbounded"/>
+            <xs:element name="DOREMEDY" type="DoRemedyData" minOccurs="0" maxOccurs="unbounded"/>
+            <xs:element name="DOAUTOEDIT2" type="SetVarData" minOccurs="0" maxOccurs="unbounded"/>
+            <xs:element name="DOAUTOEDIT" type="SetVarDataOld" minOccurs="0" maxOccurs="unbounded"/>
+            <xs:element name="DOVARIABLE" type="SetVarData" minOccurs="0" maxOccurs="unbounded"/>
+            <xs:element name="DOSHOUT" type="DoShoutData" minOccurs="0" maxOccurs="unbounded"/>
+            <xs:element name="DOOUTPUT" type="DoSysoutData" minOccurs="0" maxOccurs="unbounded"/>
+            <xs:element name="DOSYSOUT" type="DoSysoutData" minOccurs="0" maxOccurs="unbounded"/>
+            </xs:choice>
+        </xs:sequence>
+        <xs:attribute name="STMT" type="xs:string" use="optional"/>
+        <xs:attribute name="PGMS" type="xs:string" use="optional"/>
+        <xs:attribute name="PROCS" type="xs:string" use="optional"/>
+        <xs:attribute name="CODE" type="xs:string" use="optional"/>
+        <xs:attribute name="AND_OR" type="xs:string" use="optional"/>
+        <xs:attribute name="PATTERN" type="xs:string" use="optional"/>
+        <xs:attribute name="FROM_COLUMN" type="xs:string" use="optional"/>
+        <xs:attribute name="TO_COLUMN" type="xs:string" use="optional"/>
+    </xs:complexType>
+    <xs:complexType name="DoActionData">
+        <xs:attribute name="ACTION" type="xs:string" use="optional"/>
+    </xs:complexType>
+    <xs:complexType name="DoCondData">
+        <xs:attribute name="NAME" type="xs:string" use="optional"/>
+        <xs:attribute name="ODATE" type="xs:string" use="optional"/>
+        <xs:attribute name="SIGN" type="xs:string" use="optional"/>
+    </xs:complexType>
+    <xs:complexType name="DoCtbRuleData">
+        <xs:attribute name="NAME" type="xs:string" use="optional"/>
+        <xs:attribute name="PAR" type="xs:string" use="optional"/>
+    </xs:complexType>
+    <xs:complexType name="DoForceJobData">
+        <xs:sequence minOccurs="0" maxOccurs="unbounded">
+            <xs:choice>
+            <xs:element name="AUTOEDIT2" type="SetVarData" minOccurs="0" maxOccurs="unbounded"/>
+            <xs:element name="AUTOEDIT" type="SetVarDataOld" minOccurs="0" maxOccurs="unbounded"/>
+            <xs:element name="VARIABLE" type="SetVarData" minOccurs="0" maxOccurs="unbounded"/>
+            </xs:choice>
+        </xs:sequence>
+        <xs:attribute name="TABLE_NAME" type="xs:string" use="optional"/>
+        <xs:attribute name="NAME" type="xs:string" use="optional"/>
+        <xs:attribute name="DSN" type="xs:string" use="optional"/>
+        <xs:attribute name="ODATE" type="xs:string" use="optional"/>
+        <xs:attribute name="REMOTE" type="xs:string" use="optional"/>
+        <xs:attribute name="DATACENTER" type="xs:string" use="optional"/>
+    </xs:complexType>
+    <xs:complexType name="DoIfRerunData">
+        <xs:attribute name="CONFIRM" type="xs:string" use="optional"/>
+        <xs:attribute name="FPGMS" type="xs:string" use="optional"/>
+        <xs:attribute name="FPROCS" type="xs:string" use="optional"/>
+        <xs:attribute name="TPGMS" type="xs:string" use="optional"/>
+        <xs:attribute name="TPROCS" type="xs:string" use="optional"/>
+    </xs:complexType>
+    <xs:complexType name="DoMailData">
+        <xs:attribute name="URGENCY" type="xs:string" use="optional"/>
+        <xs:attribute name="DEST" type="xs:string" use="optional"/>
+        <xs:attribute name="CC_DEST" type="xs:string" use="optional"/>
+        <xs:attribute name="SUBJECT" type="xs:string" use="optional"/>
+        <xs:attribute name="MESSAGE" type="xs:string" use="optional"/>
+        <xs:attribute name="ATTACH_SYSOUT" type="xs:string" use="optional"/>
+    </xs:complexType>
+    <xs:complexType name="DoRemedyData">
+        <xs:sequence minOccurs="0" maxOccurs="unbounded">
+            <xs:choice>
+            </xs:choice>
+        </xs:sequence>
+        <xs:attribute name="URGENCY" type="xs:string" use="optional"/>
+        <xs:attribute name="DESCRIPTION" type="xs:string" use="optional"/>
+        <xs:attribute name="SUMMARY" type="xs:string" use="optional"/>
+    </xs:complexType>
+    <xs:complexType name="DoSetVarData">
+        <xs:attribute name="NAME" type="xs:string" use="optional"/>
+        <xs:attribute name="VALUE" type="xs:string" use="optional"/>
+    </xs:complexType>
+    <xs:complexType name="DoShoutData">
+        <xs:attribute name="URGENCY" type="xs:string" use="optional"/>
+        <xs:attribute name="MESSAGE" type="xs:string" use="optional"/>
+        <xs:attribute name="DEST" type="xs:string" use="optional"/>
+    </xs:complexType>
+    <xs:complexType name="DoSysoutData">
+        <xs:attribute name="OPTION" type="xs:string" use="optional"/>
+        <xs:attribute name="PAR" type="xs:string" use="optional"/>
+        <xs:attribute name="FROM" type="xs:string" use="optional"/>
+    </xs:complexType>
+        <xs:complexType name="JobClientData">
+        <xs:sequence minOccurs="0" maxOccurs="unbounded">
+            <xs:choice>
+            <xs:element name="WCM_NOTES_DATA" type="WCMNotesData" minOccurs="0" maxOccurs="unbounded"/>
+            </xs:choice>
+        </xs:sequence>
+        <xs:attribute name="INSTRUCTION" type="xs:string" use="optional"/>
+        <xs:attribute name="INSTRUCTION_READ" type="emBoolean" use="optional"/>
+        <xs:attribute name="COMMENT" type="xs:string" use="optional"/>
+        <xs:attribute name="COMMENT_READ" type="emBoolean" use="optional"/>
+    </xs:complexType>
+    <xs:complexType name="CaptureData">
+        <xs:attribute name="SEARCH_STRING" type="xs:string" use="optional"/>
+        <xs:attribute name="SKIP_LINES" type="xs:int" use="optional"/>
+        <xs:attribute name="SKIP_COLUMNS" type="xs:int" use="optional"/>
+        <xs:attribute name="BY_WHAT" type="xs:string" use="optional"/>
+        <xs:attribute name="DELIMITER" type="xs:string" use="optional"/>
+        <xs:attribute name="COUNT_TO_TAKE" type="xs:int" use="optional"/>
+        <xs:attribute name="VARIABLE" type="xs:string" use="optional"/>
+        <xs:attribute name="FUTURE_USE" type="xs:string" use="optional"/>
+    </xs:complexType>
+    <xs:complexType name="ClientData">
+        <xs:sequence minOccurs="0" maxOccurs="unbounded">
+            <xs:choice>
+            <xs:element name="WCM_NOTES_DATA" type="WCMNotesData" minOccurs="0" maxOccurs="unbounded"/>
+            </xs:choice>
+        </xs:sequence>
+        <xs:attribute name="INSTRUCTION" type="xs:string" use="optional"/>
+        <xs:attribute name="INSTRUCTION_READ" type="emBoolean" use="optional"/>
+        <xs:attribute name="COMMENT" type="xs:string" use="optional"/>
+        <xs:attribute name="COMMENT_READ" type="emBoolean" use="optional"/>
+    </xs:complexType>
+    <xs:complexType name="WorkspaceData">
+        <xs:sequence minOccurs="0" maxOccurs="unbounded">
+            <xs:choice>
+            <xs:element name="ADDITIONAL_WORKSPACE_DETAILS" type="ClientData" minOccurs="0" maxOccurs="unbounded"/>
+            </xs:choice>
+        </xs:sequence>
+        <xs:attribute name="ID" type="xs:int" use="optional"/>
+        <xs:attribute name="TYPE" use="optional">
+    <xs:simpleType>
+        <xs:restriction base = "xs:string">
+            <xs:enumeration value="UNKNOWN"/>
+            <xs:enumeration value="REGULAR"/>
+            <xs:enumeration value="REQUEST"/>
+            <xs:enumeration value="PROMOTION"/>
+        </xs:restriction>
+    </xs:simpleType>
+        </xs:attribute>
+        <xs:attribute name="STATE" use="optional">
+    <xs:simpleType>
+        <xs:restriction base = "xs:string">
+            <xs:enumeration value="WSSTATE_UNKNOWN"/>
+            <xs:enumeration value="WSSTATE_EndUserWorks"/>
+            <xs:enumeration value="WSSTATE_Submitted"/>
+            <xs:enumeration value="WSSTATE_SchedulerWorks"/>
+            <xs:enumeration value="WSSTATE_Rejected"/>
+            <xs:enumeration value="WSSTATE_Approved"/>
+            <xs:enumeration value="WSSTATE_CheckedIn"/>
+        </xs:restriction>
+    </xs:simpleType>
+        </xs:attribute>
+        <xs:attribute name="NAME" type="xs:string" use="optional"/>
+        <xs:attribute name="DESCRIPTION" type="xs:string" use="optional"/>
+        <xs:attribute name="OWNER" type="xs:string" use="optional"/>
+        <xs:attribute name="CREATED_TIME" type="xs:string" use="optional"/>
+        <xs:attribute name="UPDATED_TIME" type="xs:string" use="optional"/>
+        <xs:attribute name="CHANGE_TICKET_ID" type="xs:string" use="optional"/>
+        <xs:attribute name="ASSOCIATED_END_USER" type="xs:string" use="optional"/>
+        <xs:attribute name="TRANSFER_SIDE_TIMESTAMP" type="xs:string" use="optional"/>
+        <xs:attribute name="EMAIL_RECIPIENT" type="xs:string" use="optional"/>
+    </xs:complexType>
+    <xs:complexType name="WorkspaceDataList">
+        <xs:sequence minOccurs="0" maxOccurs="unbounded">
+            <xs:choice>
+            <xs:element name="WORKSPACE" type="WorkspaceData" minOccurs="0" maxOccurs="unbounded"/>
+            </xs:choice>
+        </xs:sequence>
+    </xs:complexType>
+    <xs:complexType name="BusinessField">
+        <xs:attribute name="NAME" type="xs:string" use="optional"/>
+        <xs:attribute name="VALUE" type="xs:string" use="optional"/>
+    </xs:complexType>
+    <xs:complexType name="FolderClientData">
+        <xs:sequence minOccurs="0" maxOccurs="unbounded">
+            <xs:choice>
+            <xs:element name="BUSINESS_PARAMETER" type="BusinessField" minOccurs="0" maxOccurs="unbounded"/>
+            <xs:element name="WCM_NOTES_DATA" type="WCMNotesData" minOccurs="0" maxOccurs="unbounded"/>
+            </xs:choice>
+        </xs:sequence>
+        <xs:attribute name="INSTRUCTION" type="xs:string" use="optional"/>
+        <xs:attribute name="INSTRUCTION_READ" type="emBoolean" use="optional"/>
+        <xs:attribute name="COMMENT" type="xs:string" use="optional"/>
+        <xs:attribute name="COMMENT_READ" type="emBoolean" use="optional"/>
+    </xs:complexType>
+    <xs:complexType name="SimpleFolder">
+        <xs:sequence minOccurs="0" maxOccurs="unbounded"><xs:choice>
+            <xs:element name="JOB" type="JobData" minOccurs="0" maxOccurs="unbounded"/>
+            <xs:element name="ADDITIONAL_FOLDER_DETAILS" type="FolderClientData" minOccurs="0" maxOccurs="unbounded"/>
+        </xs:choice></xs:sequence>
+        <xs:attribute name="DATACENTER" type="xs:string" use="optional"/>
+        <xs:attribute name="VERSION" type="xs:string" use="optional"/>
+        <xs:attribute name="PLATFORM" type="xs:string" use="optional"/>
+        <xs:attribute name="FOLDER_NAME" type="xs:string" use="optional"/>
+        <xs:attribute name="TABLE_NAME" type="xs:string" use="optional"/>
+        <xs:attribute name="FOLDER_DSN" type="xs:string" use="optional"/>
+        <xs:attribute name="TABLE_DSN" type="xs:string" use="optional"/>
+        <xs:attribute name="MODIFIED" type="emBoolean" use="optional"/>
+        <xs:attribute name="LAST_UPLOAD" type="xs:string" use="optional"/>
+        <xs:attribute name="FOLDER_ORDER_METHOD" type="xs:string" use="optional"/>
+        <xs:attribute name="TABLE_USERDAILY" type="xs:string" use="optional"/>
+        <xs:attribute name="REAL_FOLDER_ID" type="xs:int" use="optional"/>
+        <xs:attribute name="REAL_TABLEID" type="xs:int" use="optional"/>
+        <xs:attribute name="TYPE" type="xs:int" use="optional"/>
+        <xs:attribute name="USED_BY" type="xs:string" use="optional"/>
+        <xs:attribute name="USED_BY_CODE" type="xs:int" use="optional"/>
+        <xs:attribute name="ENFORCE_VALIDATION" use="optional">
+    <xs:simpleType>
+        <xs:restriction base = "xs:string">
+            <xs:enumeration value="N"/>
+            <xs:enumeration value="Y"/>
+        </xs:restriction>
+    </xs:simpleType>
+        </xs:attribute>
+        <xs:attribute name="SITE_STANDARD_NAME" type="xs:string" use="optional"/>
+    </xs:complexType>
+    <xs:complexType name="SmartFolder">
+        <xs:sequence minOccurs="0" maxOccurs="unbounded"><xs:choice>
+            <xs:element name="SUB_FOLDER" type="SubFolder" minOccurs="0" maxOccurs="unbounded"/>
+            <xs:element name="JOB" type="JobData" minOccurs="0" maxOccurs="unbounded"/>
+            <xs:element name="ADDITIONAL_FOLDER_DETAILS" type="FolderClientData" minOccurs="0" maxOccurs="unbounded"/>
+            <xs:element name="ADDITIONAL_JOB_DETAILS" type="JobClientData" minOccurs="0" maxOccurs="unbounded"/>
+            <xs:element name="AUTOEDIT2" type="SetVarData" minOccurs="0" maxOccurs="unbounded"/>
+            <xs:element name="AUTOEDIT" type="SetVarDataOld" minOccurs="0" maxOccurs="unbounded"/>
+            <xs:element name="VARIABLE" type="SetVarData" minOccurs="0" maxOccurs="unbounded"/>
+            <xs:element name="SHOUT" type="ShoutData" minOccurs="0" maxOccurs="unbounded"/>
+            <xs:element name="CONTROL" type="ControlResourceData" minOccurs="0" maxOccurs="unbounded"/>
+            <xs:element name="INCOND" type="InConditionData" minOccurs="0" maxOccurs="unbounded"/>
+            <xs:element name="QUANTITATIVE" type="QuantitativeResourceData" minOccurs="0" maxOccurs="unbounded"/>
+            <xs:element name="OUTCOND" type="OutConditionData" minOccurs="0" maxOccurs="unbounded"/>
+            <xs:element name="STEP_RANGE" type="StepRangeData" minOccurs="0" maxOccurs="unbounded"/>
+            <xs:element name="RULE_BASED_CALENDAR" type="TagData" minOccurs="0" maxOccurs="unbounded"/>
+            <xs:element name="TAG" type="TagData" minOccurs="0" maxOccurs="unbounded"/>
+            <xs:element name="RULE_BASED_CALENDARS" type="JobTagData" minOccurs="0" maxOccurs="unbounded"/>
+            <xs:element name="TAG_NAMES" type="JobTagData" minOccurs="0" maxOccurs="unbounded"/>
+            <xs:element name="ON" type="OnData" minOccurs="0" maxOccurs="unbounded"/>
+            <xs:element name="ON_TABLE" type="OnData" minOccurs="0" maxOccurs="unbounded"/>
+            <xs:element name="ON_GROUP" type="OnData" minOccurs="0" maxOccurs="unbounded"/>
+            <xs:element name="CAPTURE" type="CaptureData" minOccurs="0" maxOccurs="unbounded"/>
+        </xs:choice></xs:sequence>
+        <xs:attribute name="DATACENTER" type="xs:string" use="optional"/>
+        <xs:attribute name="VERSION" type="xs:string" use="optional"/>
+        <xs:attribute name="PLATFORM" type="xs:string" use="optional"/>
+        <xs:attribute name="FOLDER_NAME" type="xs:string" use="optional"/>
+        <xs:attribute name="TABLE_NAME" type="xs:string" use="optional"/>
+        <xs:attribute name="FOLDER_DSN" type="xs:string" use="optional"/>
+        <xs:attribute name="TABLE_DSN" type="xs:string" use="optional"/>
+        <xs:attribute name="MODIFIED" type="emBoolean" use="optional"/>
+        <xs:attribute name="LAST_UPLOAD" type="xs:string" use="optional"/>
+        <xs:attribute name="FOLDER_ORDER_METHOD" type="xs:string" use="optional"/>
+        <xs:attribute name="TABLE_USERDAILY" type="xs:string" use="optional"/>
+        <xs:attribute name="REAL_FOLDER_ID" type="xs:int" use="optional"/>
+        <xs:attribute name="REAL_TABLEID" type="xs:int" use="optional"/>
+        <xs:attribute name="TYPE" type="xs:int" use="optional"/>
+        <xs:attribute name="USED_BY" type="xs:string" use="optional"/>
+        <xs:attribute name="USED_BY_CODE" type="xs:int" use="optional"/>
+        <xs:attribute name="ENFORCE_VALIDATION" use="optional">
+    <xs:simpleType>
+        <xs:restriction base = "xs:string">
+            <xs:enumeration value="N"/>
+            <xs:enumeration value="Y"/>
+        </xs:restriction>
+    </xs:simpleType>
+        </xs:attribute>
+        <xs:attribute name="SITE_STANDARD_NAME" type="xs:string" use="optional"/>
+        <xs:attribute name="JOBISN" type="xs:int" use="optional"/>
+        <xs:attribute name="APPLICATION" type="xs:string" use="optional"/>
+        <xs:attribute name="SUB_APPLICATION" type="xs:string" use="optional"/>
+        <xs:attribute name="GROUP" type="xs:string" use="optional"/>
+        <xs:attribute name="MEMNAME" type="xs:string" use="optional"/>
+        <xs:attribute name="JOBNAME" type="xs:string" use="optional"/>
+        <xs:attribute name="DESCRIPTION" type="xs:string" use="optional"/>
+        <xs:attribute name="CREATED_BY" type="xs:string" use="optional"/>
+        <xs:attribute name="AUTHOR" type="xs:string" use="optional"/>
+        <xs:attribute name="RUN_AS" type="xs:string" use="optional"/>
+        <xs:attribute name="OWNER" type="xs:string" use="optional"/>
+        <xs:attribute name="PRIORITY" type="xs:string" use="optional"/>
+        <xs:attribute name="CRITICAL" type="xs:string" use="optional"/>
+        <xs:attribute name="TASKTYPE" type="xs:string" use="optional"/>
+        <xs:attribute name="CYCLIC" type="xs:string" use="optional"/>
+        <xs:attribute name="NODEID" type="xs:string" use="optional"/>
+        <xs:attribute name="DOCLIB" type="xs:string" use="optional"/>
+        <xs:attribute name="DOCMEM" type="xs:string" use="optional"/>
+        <xs:attribute name="INTERVAL" type="xs:string" use="optional"/>
+        <xs:attribute name="OVERRIDE_PATH" type="xs:string" use="optional"/>
+        <xs:attribute name="OVERLIB" type="xs:string" use="optional"/>
+        <xs:attribute name="MEMLIB" type="xs:string" use="optional"/>
+        <xs:attribute name="CMDLINE" type="xs:string" use="optional"/>
+        <xs:attribute name="CONFIRM" type="xs:string" use="optional"/>
+        <xs:attribute name="DAYSCAL" type="xs:string" use="optional"/>
+        <xs:attribute name="WEEKSCAL" type="xs:string" use="optional"/>
+        <xs:attribute name="CONFCAL" type="xs:string" use="optional"/>
+        <xs:attribute name="RETRO" type="xs:string" use="optional"/>
+        <xs:attribute name="MAXWAIT" type="xs:int" use="optional"/>
+        <xs:attribute name="MAXRERUN" type="xs:int" use="optional"/>
+        <xs:attribute name="AUTOARCH" type="xs:string" use="optional"/>
+        <xs:attribute name="MAXDAYS" type="xs:int" use="optional"/>
+        <xs:attribute name="MAXRUNS" type="xs:int" use="optional"/>
+        <xs:attribute name="TIMEFROM" type="xs:string" use="optional"/>
+        <xs:attribute name="TIMETO" type="xs:string" use="optional"/>
+        <xs:attribute name="DAYS" type="xs:string" use="optional"/>
+        <xs:attribute name="WEEKDAYS" type="xs:string" use="optional"/>
+        <xs:attribute name="JAN" type="xs:string" use="optional"/>
+        <xs:attribute name="FEB" type="xs:string" use="optional"/>
+        <xs:attribute name="MAR" type="xs:string" use="optional"/>
+        <xs:attribute name="APR" type="xs:string" use="optional"/>
+        <xs:attribute name="MAY" type="xs:string" use="optional"/>
+        <xs:attribute name="JUN" type="xs:string" use="optional"/>
+        <xs:attribute name="JUL" type="xs:string" use="optional"/>
+        <xs:attribute name="AUG" type="xs:string" use="optional"/>
+        <xs:attribute name="SEP" type="xs:string" use="optional"/>
+        <xs:attribute name="OCT" type="xs:string" use="optional"/>
+        <xs:attribute name="NOV" type="xs:string" use="optional"/>
+        <xs:attribute name="DEC" type="xs:string" use="optional"/>
+        <xs:attribute name="DATE" type="xs:string" use="optional"/>
+        <xs:attribute name="RERUNMEM" type="xs:string" use="optional"/>
+        <xs:attribute name="DAYS_AND_OR" type="xs:string" use="optional"/>
+        <xs:attribute name="CATEGORY" type="xs:string" use="optional"/>
+        <xs:attribute name="SHIFT" type="xs:string" use="optional"/>
+        <xs:attribute name="SHIFTNUM" type="xs:string" use="optional"/>
+        <xs:attribute name="PDSNAME" type="xs:string" use="optional"/>
+        <xs:attribute name="MINIMUM" type="xs:string" use="optional"/>
+        <xs:attribute name="PREVENTNCT2" type="xs:string" use="optional"/>
+        <xs:attribute name="OPTION" type="xs:string" use="optional"/>
+        <xs:attribute name="FROM" type="xs:string" use="optional"/>
+        <xs:attribute name="PAR" type="xs:string" use="optional"/>
+        <xs:attribute name="SYSDB" type="xs:string" use="optional"/>
+        <xs:attribute name="DUE_OUT" type="xs:string" use="optional"/>
+        <xs:attribute name="RETEN_DAYS" type="xs:string" use="optional"/>
+        <xs:attribute name="RETEN_GEN" type="xs:string" use="optional"/>
+        <xs:attribute name="TASK_CLASS" type="xs:string" use="optional"/>
+        <xs:attribute name="PREV_DAY" type="xs:string" use="optional"/>
+        <xs:attribute name="ADJUST_COND" type="xs:string" use="optional"/>
+        <xs:attribute name="JOBS_IN_GROUP" type="xs:string" use="optional"/>
+        <xs:attribute name="LARGE_SIZE" type="xs:string" use="optional"/>
+        <xs:attribute name="IND_CYCLIC" type="xs:string" use="optional"/>
+        <xs:attribute name="CREATION_USER" type="xs:string" use="optional"/>
+        <xs:attribute name="CREATION_DATE" type="xs:string" use="optional"/>
+        <xs:attribute name="CREATION_TIME" type="xs:string" use="optional"/>
+        <xs:attribute name="CHANGE_USERID" type="xs:string" use="optional"/>
+        <xs:attribute name="CHANGE_DATE" type="xs:string" use="optional"/>
+        <xs:attribute name="CHANGE_TIME" type="xs:string" use="optional"/>
+        <xs:attribute name="JOB_VERSION" type="xs:string" use="optional"/>
+        <xs:attribute name="RULE_BASED_CALENDAR_RELATIONSHIP" type="xs:string" use="optional"/>
+        <xs:attribute name="TAG_RELATIONSHIP" type="xs:string" use="optional"/>
+        <xs:attribute name="TIMEZONE" type="xs:string" use="optional"/>
+        <xs:attribute name="APPL_TYPE" type="xs:string" use="optional"/>
+        <xs:attribute name="APPL_VER" type="xs:string" use="optional"/>
+        <xs:attribute name="APPL_FORM" type="xs:string" use="optional"/>
+        <xs:attribute name="CM_VER" type="xs:string" use="optional"/>
+        <xs:attribute name="MULTY_AGENT" type="xs:string" use="optional"/>
+        <xs:attribute name="ACTIVE_FROM" type="xs:string" use="optional"/>
+        <xs:attribute name="ACTIVE_TILL" type="xs:string" use="optional"/>
+        <xs:attribute name="SCHEDULING_ENVIRONMENT" type="xs:string" use="optional"/>
+        <xs:attribute name="SYSTEM_AFFINITY" type="xs:string" use="optional"/>
+        <xs:attribute name="REQUEST_NJE_NODE" type="xs:string" use="optional"/>
+        <xs:attribute name="STAT_CAL" type="xs:string" use="optional"/>
+        <xs:attribute name="INSTREAM_JCL" type="xs:string" use="optional"/>
+        <xs:attribute name="USE_INSTREAM_JCL" type="xs:string" use="optional"/>
+        <xs:attribute name="DUE_OUT_DAYSOFFSET" type="xs:string" use="optional"/>
+        <xs:attribute name="FROM_DAYSOFFSET" type="xs:string" use="optional"/>
+        <xs:attribute name="TO_DAYSOFFSET" type="xs:string" use="optional"/>
+        <xs:attribute name="VERSION_OPCODE" type="xs:string" use="optional"/>
+        <xs:attribute name="IS_CURRENT_VERSION" type="xs:string" use="optional"/>
+        <xs:attribute name="VERSION_SERIAL" type="xs:int" use="optional"/>
+        <xs:attribute name="VERSION_HOST" type="xs:string" use="optional"/>
+        <xs:attribute name="CYCLIC_INTERVAL_SEQUENCE" type="xs:string" use="optional"/>
+        <xs:attribute name="CYCLIC_TIMES_SEQUENCE" type="xs:string" use="optional"/>
+        <xs:attribute name="CYCLIC_TOLERANCE" type="xs:int" use="optional"/>
+        <xs:attribute name="CYCLIC_TYPE" type="xs:string" use="optional"/>
+        <xs:attribute name="PARENT_FOLDER" type="xs:string" use="optional"/>
+        <xs:attribute name="PARENT_TABLE" type="xs:string" use="optional"/>
+        <xs:attribute name="REMOVEATONCE" type="xs:string" use="optional"/>
+        <xs:attribute name="DAYSKEEPINNOTOK" type="xs:int" use="optional"/>
+        <xs:attribute name="ODATE" type="xs:string" use="optional"/>
+        <xs:attribute name="FPROCS" type="xs:string" use="optional"/>
+        <xs:attribute name="TPGMS" type="xs:string" use="optional"/>
+        <xs:attribute name="TPROCS" type="xs:string" use="optional"/>
+    </xs:complexType>
+    <xs:complexType name="SmartTable">
+        <xs:sequence minOccurs="0" maxOccurs="unbounded"><xs:choice>
+            <xs:element name="SUB_TABLE" type="SubTable" minOccurs="0" maxOccurs="unbounded"/>
+            <xs:element name="JOB" type="JobData" minOccurs="0" maxOccurs="unbounded"/>
+            <xs:element name="ADDITIONAL_FOLDER_DETAILS" type="FolderClientData" minOccurs="0" maxOccurs="unbounded"/>
+            <xs:element name="ADDITIONAL_JOB_DETAILS" type="JobClientData" minOccurs="0" maxOccurs="unbounded"/>
+            <xs:element name="AUTOEDIT2" type="SetVarData" minOccurs="0" maxOccurs="unbounded"/>
+            <xs:element name="AUTOEDIT" type="SetVarDataOld" minOccurs="0" maxOccurs="unbounded"/>
+            <xs:element name="VARIABLE" type="SetVarData" minOccurs="0" maxOccurs="unbounded"/>
+            <xs:element name="SHOUT" type="ShoutData" minOccurs="0" maxOccurs="unbounded"/>
+            <xs:element name="CONTROL" type="ControlResourceData" minOccurs="0" maxOccurs="unbounded"/>
+            <xs:element name="INCOND" type="InConditionData" minOccurs="0" maxOccurs="unbounded"/>
+            <xs:element name="QUANTITATIVE" type="QuantitativeResourceData" minOccurs="0" maxOccurs="unbounded"/>
+            <xs:element name="OUTCOND" type="OutConditionData" minOccurs="0" maxOccurs="unbounded"/>
+            <xs:element name="STEP_RANGE" type="StepRangeData" minOccurs="0" maxOccurs="unbounded"/>
+            <xs:element name="RULE_BASED_CALENDAR" type="TagData" minOccurs="0" maxOccurs="unbounded"/>
+            <xs:element name="TAG" type="TagData" minOccurs="0" maxOccurs="unbounded"/>
+            <xs:element name="RULE_BASED_CALENDARS" type="JobTagData" minOccurs="0" maxOccurs="unbounded"/>
+            <xs:element name="TAG_NAMES" type="JobTagData" minOccurs="0" maxOccurs="unbounded"/>
+            <xs:element name="ON" type="OnData" minOccurs="0" maxOccurs="unbounded"/>
+            <xs:element name="ON_TABLE" type="OnData" minOccurs="0" maxOccurs="unbounded"/>
+            <xs:element name="ON_GROUP" type="OnData" minOccurs="0" maxOccurs="unbounded"/>
+            <xs:element name="CAPTURE" type="CaptureData" minOccurs="0" maxOccurs="unbounded"/>
+        </xs:choice></xs:sequence>
+        <xs:attribute name="DATACENTER" type="xs:string" use="optional"/>
+        <xs:attribute name="VERSION" type="xs:string" use="optional"/>
+        <xs:attribute name="PLATFORM" type="xs:string" use="optional"/>
+        <xs:attribute name="FOLDER_NAME" type="xs:string" use="optional"/>
+        <xs:attribute name="TABLE_NAME" type="xs:string" use="optional"/>
+        <xs:attribute name="FOLDER_DSN" type="xs:string" use="optional"/>
+        <xs:attribute name="TABLE_DSN" type="xs:string" use="optional"/>
+        <xs:attribute name="MODIFIED" type="emBoolean" use="optional"/>
+        <xs:attribute name="LAST_UPLOAD" type="xs:string" use="optional"/>
+        <xs:attribute name="FOLDER_ORDER_METHOD" type="xs:string" use="optional"/>
+        <xs:attribute name="TABLE_USERDAILY" type="xs:string" use="optional"/>
+        <xs:attribute name="REAL_FOLDER_ID" type="xs:int" use="optional"/>
+        <xs:attribute name="REAL_TABLEID" type="xs:int" use="optional"/>
+        <xs:attribute name="TYPE" type="xs:int" use="optional"/>
+        <xs:attribute name="USED_BY" type="xs:string" use="optional"/>
+        <xs:attribute name="USED_BY_CODE" type="xs:int" use="optional"/>
+        <xs:attribute name="ENFORCE_VALIDATION" use="optional">
+    <xs:simpleType>
+        <xs:restriction base = "xs:string">
+            <xs:enumeration value="N"/>
+            <xs:enumeration value="Y"/>
+        </xs:restriction>
+    </xs:simpleType>
+        </xs:attribute>
+        <xs:attribute name="SITE_STANDARD_NAME" type="xs:string" use="optional"/>
+        <xs:attribute name="JOBISN" type="xs:int" use="optional"/>
+        <xs:attribute name="APPLICATION" type="xs:string" use="optional"/>
+        <xs:attribute name="SUB_APPLICATION" type="xs:string" use="optional"/>
+        <xs:attribute name="GROUP" type="xs:string" use="optional"/>
+        <xs:attribute name="MEMNAME" type="xs:string" use="optional"/>
+        <xs:attribute name="JOBNAME" type="xs:string" use="optional"/>
+        <xs:attribute name="DESCRIPTION" type="xs:string" use="optional"/>
+        <xs:attribute name="CREATED_BY" type="xs:string" use="optional"/>
+        <xs:attribute name="AUTHOR" type="xs:string" use="optional"/>
+        <xs:attribute name="RUN_AS" type="xs:string" use="optional"/>
+        <xs:attribute name="OWNER" type="xs:string" use="optional"/>
+        <xs:attribute name="PRIORITY" type="xs:string" use="optional"/>
+        <xs:attribute name="CRITICAL" type="xs:string" use="optional"/>
+        <xs:attribute name="TASKTYPE" type="xs:string" use="optional"/>
+        <xs:attribute name="CYCLIC" type="xs:string" use="optional"/>
+        <xs:attribute name="NODEID" type="xs:string" use="optional"/>
+        <xs:attribute name="DOCLIB" type="xs:string" use="optional"/>
+        <xs:attribute name="DOCMEM" type="xs:string" use="optional"/>
+        <xs:attribute name="INTERVAL" type="xs:string" use="optional"/>
+        <xs:attribute name="OVERRIDE_PATH" type="xs:string" use="optional"/>
+        <xs:attribute name="OVERLIB" type="xs:string" use="optional"/>
+        <xs:attribute name="MEMLIB" type="xs:string" use="optional"/>
+        <xs:attribute name="CMDLINE" type="xs:string" use="optional"/>
+        <xs:attribute name="CONFIRM" type="xs:string" use="optional"/>
+        <xs:attribute name="DAYSCAL" type="xs:string" use="optional"/>
+        <xs:attribute name="WEEKSCAL" type="xs:string" use="optional"/>
+        <xs:attribute name="CONFCAL" type="xs:string" use="optional"/>
+        <xs:attribute name="RETRO" type="xs:string" use="optional"/>
+        <xs:attribute name="MAXWAIT" type="xs:int" use="optional"/>
+        <xs:attribute name="MAXRERUN" type="xs:int" use="optional"/>
+        <xs:attribute name="AUTOARCH" type="xs:string" use="optional"/>
+        <xs:attribute name="MAXDAYS" type="xs:int" use="optional"/>
+        <xs:attribute name="MAXRUNS" type="xs:int" use="optional"/>
+        <xs:attribute name="TIMEFROM" type="xs:string" use="optional"/>
+        <xs:attribute name="TIMETO" type="xs:string" use="optional"/>
+        <xs:attribute name="DAYS" type="xs:string" use="optional"/>
+        <xs:attribute name="WEEKDAYS" type="xs:string" use="optional"/>
+        <xs:attribute name="JAN" type="xs:string" use="optional"/>
+        <xs:attribute name="FEB" type="xs:string" use="optional"/>
+        <xs:attribute name="MAR" type="xs:string" use="optional"/>
+        <xs:attribute name="APR" type="xs:string" use="optional"/>
+        <xs:attribute name="MAY" type="xs:string" use="optional"/>
+        <xs:attribute name="JUN" type="xs:string" use="optional"/>
+        <xs:attribute name="JUL" type="xs:string" use="optional"/>
+        <xs:attribute name="AUG" type="xs:string" use="optional"/>
+        <xs:attribute name="SEP" type="xs:string" use="optional"/>
+        <xs:attribute name="OCT" type="xs:string" use="optional"/>
+        <xs:attribute name="NOV" type="xs:string" use="optional"/>
+        <xs:attribute name="DEC" type="xs:string" use="optional"/>
+        <xs:attribute name="DATE" type="xs:string" use="optional"/>
+        <xs:attribute name="RERUNMEM" type="xs:string" use="optional"/>
+        <xs:attribute name="DAYS_AND_OR" type="xs:string" use="optional"/>
+        <xs:attribute name="CATEGORY" type="xs:string" use="optional"/>
+        <xs:attribute name="SHIFT" type="xs:string" use="optional"/>
+        <xs:attribute name="SHIFTNUM" type="xs:string" use="optional"/>
+        <xs:attribute name="PDSNAME" type="xs:string" use="optional"/>
+        <xs:attribute name="MINIMUM" type="xs:string" use="optional"/>
+        <xs:attribute name="PREVENTNCT2" type="xs:string" use="optional"/>
+        <xs:attribute name="OPTION" type="xs:string" use="optional"/>
+        <xs:attribute name="FROM" type="xs:string" use="optional"/>
+        <xs:attribute name="PAR" type="xs:string" use="optional"/>
+        <xs:attribute name="SYSDB" type="xs:string" use="optional"/>
+        <xs:attribute name="DUE_OUT" type="xs:string" use="optional"/>
+        <xs:attribute name="RETEN_DAYS" type="xs:string" use="optional"/>
+        <xs:attribute name="RETEN_GEN" type="xs:string" use="optional"/>
+        <xs:attribute name="TASK_CLASS" type="xs:string" use="optional"/>
+        <xs:attribute name="PREV_DAY" type="xs:string" use="optional"/>
+        <xs:attribute name="ADJUST_COND" type="xs:string" use="optional"/>
+        <xs:attribute name="JOBS_IN_GROUP" type="xs:string" use="optional"/>
+        <xs:attribute name="LARGE_SIZE" type="xs:string" use="optional"/>
+        <xs:attribute name="IND_CYCLIC" type="xs:string" use="optional"/>
+        <xs:attribute name="CREATION_USER" type="xs:string" use="optional"/>
+        <xs:attribute name="CREATION_DATE" type="xs:string" use="optional"/>
+        <xs:attribute name="CREATION_TIME" type="xs:string" use="optional"/>
+        <xs:attribute name="CHANGE_USERID" type="xs:string" use="optional"/>
+        <xs:attribute name="CHANGE_DATE" type="xs:string" use="optional"/>
+        <xs:attribute name="CHANGE_TIME" type="xs:string" use="optional"/>
+        <xs:attribute name="JOB_VERSION" type="xs:string" use="optional"/>
+        <xs:attribute name="RULE_BASED_CALENDAR_RELATIONSHIP" type="xs:string" use="optional"/>
+        <xs:attribute name="TAG_RELATIONSHIP" type="xs:string" use="optional"/>
+        <xs:attribute name="TIMEZONE" type="xs:string" use="optional"/>
+        <xs:attribute name="APPL_TYPE" type="xs:string" use="optional"/>
+        <xs:attribute name="APPL_VER" type="xs:string" use="optional"/>
+        <xs:attribute name="APPL_FORM" type="xs:string" use="optional"/>
+        <xs:attribute name="CM_VER" type="xs:string" use="optional"/>
+        <xs:attribute name="MULTY_AGENT" type="xs:string" use="optional"/>
+        <xs:attribute name="ACTIVE_FROM" type="xs:string" use="optional"/>
+        <xs:attribute name="ACTIVE_TILL" type="xs:string" use="optional"/>
+        <xs:attribute name="SCHEDULING_ENVIRONMENT" type="xs:string" use="optional"/>
+        <xs:attribute name="SYSTEM_AFFINITY" type="xs:string" use="optional"/>
+        <xs:attribute name="REQUEST_NJE_NODE" type="xs:string" use="optional"/>
+        <xs:attribute name="STAT_CAL" type="xs:string" use="optional"/>
+        <xs:attribute name="INSTREAM_JCL" type="xs:string" use="optional"/>
+        <xs:attribute name="USE_INSTREAM_JCL" type="xs:string" use="optional"/>
+        <xs:attribute name="DUE_OUT_DAYSOFFSET" type="xs:string" use="optional"/>
+        <xs:attribute name="FROM_DAYSOFFSET" type="xs:string" use="optional"/>
+        <xs:attribute name="TO_DAYSOFFSET" type="xs:string" use="optional"/>
+        <xs:attribute name="VERSION_OPCODE" type="xs:string" use="optional"/>
+        <xs:attribute name="IS_CURRENT_VERSION" type="xs:string" use="optional"/>
+        <xs:attribute name="VERSION_SERIAL" type="xs:int" use="optional"/>
+        <xs:attribute name="VERSION_HOST" type="xs:string" use="optional"/>
+        <xs:attribute name="CYCLIC_INTERVAL_SEQUENCE" type="xs:string" use="optional"/>
+        <xs:attribute name="CYCLIC_TIMES_SEQUENCE" type="xs:string" use="optional"/>
+        <xs:attribute name="CYCLIC_TOLERANCE" type="xs:int" use="optional"/>
+        <xs:attribute name="CYCLIC_TYPE" type="xs:string" use="optional"/>
+        <xs:attribute name="PARENT_FOLDER" type="xs:string" use="optional"/>
+        <xs:attribute name="PARENT_TABLE" type="xs:string" use="optional"/>
+        <xs:attribute name="REMOVEATONCE" type="xs:string" use="optional"/>
+        <xs:attribute name="DAYSKEEPINNOTOK" type="xs:int" use="optional"/>
+        <xs:attribute name="ODATE" type="xs:string" use="optional"/>
+        <xs:attribute name="FPROCS" type="xs:string" use="optional"/>
+        <xs:attribute name="TPGMS" type="xs:string" use="optional"/>
+        <xs:attribute name="TPROCS" type="xs:string" use="optional"/>
+    </xs:complexType>
+    <xs:complexType name="SubFolder">
+        <xs:sequence minOccurs="0" maxOccurs="unbounded"><xs:choice>
+            <xs:element name="ADDITIONAL_JOB_DETAILS" type="JobClientData" minOccurs="0" maxOccurs="unbounded"/>
+            <xs:element name="AUTOEDIT2" type="SetVarData" minOccurs="0" maxOccurs="unbounded"/>
+            <xs:element name="AUTOEDIT" type="SetVarDataOld" minOccurs="0" maxOccurs="unbounded"/>
+            <xs:element name="VARIABLE" type="SetVarData" minOccurs="0" maxOccurs="unbounded"/>
+            <xs:element name="SHOUT" type="ShoutData" minOccurs="0" maxOccurs="unbounded"/>
+            <xs:element name="CONTROL" type="ControlResourceData" minOccurs="0" maxOccurs="unbounded"/>
+            <xs:element name="INCOND" type="InConditionData" minOccurs="0" maxOccurs="unbounded"/>
+            <xs:element name="QUANTITATIVE" type="QuantitativeResourceData" minOccurs="0" maxOccurs="unbounded"/>
+            <xs:element name="OUTCOND" type="OutConditionData" minOccurs="0" maxOccurs="unbounded"/>
+            <xs:element name="STEP_RANGE" type="StepRangeData" minOccurs="0" maxOccurs="unbounded"/>
+            <xs:element name="RULE_BASED_CALENDAR" type="TagData" minOccurs="0" maxOccurs="unbounded"/>
+            <xs:element name="TAG" type="TagData" minOccurs="0" maxOccurs="unbounded"/>
+            <xs:element name="RULE_BASED_CALENDARS" type="JobTagData" minOccurs="0" maxOccurs="unbounded"/>
+            <xs:element name="TAG_NAMES" type="JobTagData" minOccurs="0" maxOccurs="unbounded"/>
+            <xs:element name="ON" type="OnData" minOccurs="0" maxOccurs="unbounded"/>
+            <xs:element name="ON_TABLE" type="OnData" minOccurs="0" maxOccurs="unbounded"/>
+            <xs:element name="ON_GROUP" type="OnData" minOccurs="0" maxOccurs="unbounded"/>
+            <xs:element name="CAPTURE" type="CaptureData" minOccurs="0" maxOccurs="unbounded"/>
+            <xs:element name="JOB" type="JobData" minOccurs="0" maxOccurs="unbounded"/>
+            <xs:element name="SUB_FOLDER" type="SubFolder" minOccurs="0" maxOccurs="unbounded"/>
+        </xs:choice></xs:sequence>
+        <xs:attribute name="JOBISN" type="xs:int" use="optional"/>
+        <xs:attribute name="APPLICATION" type="xs:string" use="optional"/>
+        <xs:attribute name="SUB_APPLICATION" type="xs:string" use="optional"/>
+        <xs:attribute name="GROUP" type="xs:string" use="optional"/>
+        <xs:attribute name="MEMNAME" type="xs:string" use="optional"/>
+        <xs:attribute name="JOBNAME" type="xs:string" use="optional"/>
+        <xs:attribute name="DESCRIPTION" type="xs:string" use="optional"/>
+        <xs:attribute name="CREATED_BY" type="xs:string" use="optional"/>
+        <xs:attribute name="AUTHOR" type="xs:string" use="optional"/>
+        <xs:attribute name="RUN_AS" type="xs:string" use="optional"/>
+        <xs:attribute name="OWNER" type="xs:string" use="optional"/>
+        <xs:attribute name="PRIORITY" type="xs:string" use="optional"/>
+        <xs:attribute name="CRITICAL" type="xs:string" use="optional"/>
+        <xs:attribute name="TASKTYPE" type="xs:string" use="optional"/>
+        <xs:attribute name="CYCLIC" type="xs:string" use="optional"/>
+        <xs:attribute name="NODEID" type="xs:string" use="optional"/>
+        <xs:attribute name="DOCLIB" type="xs:string" use="optional"/>
+        <xs:attribute name="DOCMEM" type="xs:string" use="optional"/>
+        <xs:attribute name="INTERVAL" type="xs:string" use="optional"/>
+        <xs:attribute name="OVERRIDE_PATH" type="xs:string" use="optional"/>
+        <xs:attribute name="OVERLIB" type="xs:string" use="optional"/>
+        <xs:attribute name="MEMLIB" type="xs:string" use="optional"/>
+        <xs:attribute name="CMDLINE" type="xs:string" use="optional"/>
+        <xs:attribute name="CONFIRM" type="xs:string" use="optional"/>
+        <xs:attribute name="DAYSCAL" type="xs:string" use="optional"/>
+        <xs:attribute name="WEEKSCAL" type="xs:string" use="optional"/>
+        <xs:attribute name="CONFCAL" type="xs:string" use="optional"/>
+        <xs:attribute name="RETRO" type="xs:string" use="optional"/>
+        <xs:attribute name="MAXWAIT" type="xs:int" use="optional"/>
+        <xs:attribute name="MAXRERUN" type="xs:int" use="optional"/>
+        <xs:attribute name="AUTOARCH" type="xs:string" use="optional"/>
+        <xs:attribute name="MAXDAYS" type="xs:int" use="optional"/>
+        <xs:attribute name="MAXRUNS" type="xs:int" use="optional"/>
+        <xs:attribute name="TIMEFROM" type="xs:string" use="optional"/>
+        <xs:attribute name="TIMETO" type="xs:string" use="optional"/>
+        <xs:attribute name="DAYS" type="xs:string" use="optional"/>
+        <xs:attribute name="WEEKDAYS" type="xs:string" use="optional"/>
+        <xs:attribute name="JAN" type="xs:string" use="optional"/>
+        <xs:attribute name="FEB" type="xs:string" use="optional"/>
+        <xs:attribute name="MAR" type="xs:string" use="optional"/>
+        <xs:attribute name="APR" type="xs:string" use="optional"/>
+        <xs:attribute name="MAY" type="xs:string" use="optional"/>
+        <xs:attribute name="JUN" type="xs:string" use="optional"/>
+        <xs:attribute name="JUL" type="xs:string" use="optional"/>
+        <xs:attribute name="AUG" type="xs:string" use="optional"/>
+        <xs:attribute name="SEP" type="xs:string" use="optional"/>
+        <xs:attribute name="OCT" type="xs:string" use="optional"/>
+        <xs:attribute name="NOV" type="xs:string" use="optional"/>
+        <xs:attribute name="DEC" type="xs:string" use="optional"/>
+        <xs:attribute name="DATE" type="xs:string" use="optional"/>
+        <xs:attribute name="RERUNMEM" type="xs:string" use="optional"/>
+        <xs:attribute name="DAYS_AND_OR" type="xs:string" use="optional"/>
+        <xs:attribute name="CATEGORY" type="xs:string" use="optional"/>
+        <xs:attribute name="SHIFT" type="xs:string" use="optional"/>
+        <xs:attribute name="SHIFTNUM" type="xs:string" use="optional"/>
+        <xs:attribute name="PDSNAME" type="xs:string" use="optional"/>
+        <xs:attribute name="MINIMUM" type="xs:string" use="optional"/>
+        <xs:attribute name="PREVENTNCT2" type="xs:string" use="optional"/>
+        <xs:attribute name="OPTION" type="xs:string" use="optional"/>
+        <xs:attribute name="FROM" type="xs:string" use="optional"/>
+        <xs:attribute name="PAR" type="xs:string" use="optional"/>
+        <xs:attribute name="SYSDB" type="xs:string" use="optional"/>
+        <xs:attribute name="DUE_OUT" type="xs:string" use="optional"/>
+        <xs:attribute name="RETEN_DAYS" type="xs:string" use="optional"/>
+        <xs:attribute name="RETEN_GEN" type="xs:string" use="optional"/>
+        <xs:attribute name="TASK_CLASS" type="xs:string" use="optional"/>
+        <xs:attribute name="PREV_DAY" type="xs:string" use="optional"/>
+        <xs:attribute name="ADJUST_COND" type="xs:string" use="optional"/>
+        <xs:attribute name="JOBS_IN_GROUP" type="xs:string" use="optional"/>
+        <xs:attribute name="LARGE_SIZE" type="xs:string" use="optional"/>
+        <xs:attribute name="IND_CYCLIC" type="xs:string" use="optional"/>
+        <xs:attribute name="CREATION_USER" type="xs:string" use="optional"/>
+        <xs:attribute name="CREATION_DATE" type="xs:string" use="optional"/>
+        <xs:attribute name="CREATION_TIME" type="xs:string" use="optional"/>
+        <xs:attribute name="CHANGE_USERID" type="xs:string" use="optional"/>
+        <xs:attribute name="CHANGE_DATE" type="xs:string" use="optional"/>
+        <xs:attribute name="CHANGE_TIME" type="xs:string" use="optional"/>
+        <xs:attribute name="JOB_VERSION" type="xs:string" use="optional"/>
+        <xs:attribute name="RULE_BASED_CALENDAR_RELATIONSHIP" type="xs:string" use="optional"/>
+        <xs:attribute name="TAG_RELATIONSHIP" type="xs:string" use="optional"/>
+        <xs:attribute name="TIMEZONE" type="xs:string" use="optional"/>
+        <xs:attribute name="APPL_TYPE" type="xs:string" use="optional"/>
+        <xs:attribute name="APPL_VER" type="xs:string" use="optional"/>
+        <xs:attribute name="APPL_FORM" type="xs:string" use="optional"/>
+        <xs:attribute name="CM_VER" type="xs:string" use="optional"/>
+        <xs:attribute name="MULTY_AGENT" type="xs:string" use="optional"/>
+        <xs:attribute name="ACTIVE_FROM" type="xs:string" use="optional"/>
+        <xs:attribute name="ACTIVE_TILL" type="xs:string" use="optional"/>
+        <xs:attribute name="SCHEDULING_ENVIRONMENT" type="xs:string" use="optional"/>
+        <xs:attribute name="SYSTEM_AFFINITY" type="xs:string" use="optional"/>
+        <xs:attribute name="REQUEST_NJE_NODE" type="xs:string" use="optional"/>
+        <xs:attribute name="STAT_CAL" type="xs:string" use="optional"/>
+        <xs:attribute name="INSTREAM_JCL" type="xs:string" use="optional"/>
+        <xs:attribute name="USE_INSTREAM_JCL" type="xs:string" use="optional"/>
+        <xs:attribute name="DUE_OUT_DAYSOFFSET" type="xs:string" use="optional"/>
+        <xs:attribute name="FROM_DAYSOFFSET" type="xs:string" use="optional"/>
+        <xs:attribute name="TO_DAYSOFFSET" type="xs:string" use="optional"/>
+        <xs:attribute name="VERSION_OPCODE" type="xs:string" use="optional"/>
+        <xs:attribute name="IS_CURRENT_VERSION" type="xs:string" use="optional"/>
+        <xs:attribute name="VERSION_SERIAL" type="xs:int" use="optional"/>
+        <xs:attribute name="VERSION_HOST" type="xs:string" use="optional"/>
+        <xs:attribute name="CYCLIC_INTERVAL_SEQUENCE" type="xs:string" use="optional"/>
+        <xs:attribute name="CYCLIC_TIMES_SEQUENCE" type="xs:string" use="optional"/>
+        <xs:attribute name="CYCLIC_TOLERANCE" type="xs:int" use="optional"/>
+        <xs:attribute name="CYCLIC_TYPE" type="xs:string" use="optional"/>
+        <xs:attribute name="PARENT_FOLDER" type="xs:string" use="optional"/>
+        <xs:attribute name="PARENT_TABLE" type="xs:string" use="optional"/>
+        <xs:attribute name="ODATE" type="xs:string" use="optional"/>
+        <xs:attribute name="FPROCS" type="xs:string" use="optional"/>
+        <xs:attribute name="TPGMS" type="xs:string" use="optional"/>
+        <xs:attribute name="TPROCS" type="xs:string" use="optional"/>
+    </xs:complexType>
+    <xs:complexType name="SubTable">
+        <xs:sequence minOccurs="0" maxOccurs="unbounded"><xs:choice>
+            <xs:element name="ADDITIONAL_JOB_DETAILS" type="JobClientData" minOccurs="0" maxOccurs="unbounded"/>
+            <xs:element name="AUTOEDIT2" type="SetVarData" minOccurs="0" maxOccurs="unbounded"/>
+            <xs:element name="AUTOEDIT" type="SetVarDataOld" minOccurs="0" maxOccurs="unbounded"/>
+            <xs:element name="VARIABLE" type="SetVarData" minOccurs="0" maxOccurs="unbounded"/>
+            <xs:element name="SHOUT" type="ShoutData" minOccurs="0" maxOccurs="unbounded"/>
+            <xs:element name="CONTROL" type="ControlResourceData" minOccurs="0" maxOccurs="unbounded"/>
+            <xs:element name="INCOND" type="InConditionData" minOccurs="0" maxOccurs="unbounded"/>
+            <xs:element name="QUANTITATIVE" type="QuantitativeResourceData" minOccurs="0" maxOccurs="unbounded"/>
+            <xs:element name="OUTCOND" type="OutConditionData" minOccurs="0" maxOccurs="unbounded"/>
+            <xs:element name="STEP_RANGE" type="StepRangeData" minOccurs="0" maxOccurs="unbounded"/>
+            <xs:element name="RULE_BASED_CALENDAR" type="TagData" minOccurs="0" maxOccurs="unbounded"/>
+            <xs:element name="TAG" type="TagData" minOccurs="0" maxOccurs="unbounded"/>
+            <xs:element name="RULE_BASED_CALENDARS" type="JobTagData" minOccurs="0" maxOccurs="unbounded"/>
+            <xs:element name="TAG_NAMES" type="JobTagData" minOccurs="0" maxOccurs="unbounded"/>
+            <xs:element name="ON" type="OnData" minOccurs="0" maxOccurs="unbounded"/>
+            <xs:element name="ON_TABLE" type="OnData" minOccurs="0" maxOccurs="unbounded"/>
+            <xs:element name="ON_GROUP" type="OnData" minOccurs="0" maxOccurs="unbounded"/>
+            <xs:element name="CAPTURE" type="CaptureData" minOccurs="0" maxOccurs="unbounded"/>
+            <xs:element name="JOB" type="JobData" minOccurs="0" maxOccurs="unbounded"/>
+            <xs:element name="SUB_TABLE" type="SubTable" minOccurs="0" maxOccurs="unbounded"/>
+        </xs:choice></xs:sequence>
+        <xs:attribute name="JOBISN" type="xs:int" use="optional"/>
+        <xs:attribute name="APPLICATION" type="xs:string" use="optional"/>
+        <xs:attribute name="SUB_APPLICATION" type="xs:string" use="optional"/>
+        <xs:attribute name="GROUP" type="xs:string" use="optional"/>
+        <xs:attribute name="MEMNAME" type="xs:string" use="optional"/>
+        <xs:attribute name="JOBNAME" type="xs:string" use="optional"/>
+        <xs:attribute name="DESCRIPTION" type="xs:string" use="optional"/>
+        <xs:attribute name="CREATED_BY" type="xs:string" use="optional"/>
+        <xs:attribute name="AUTHOR" type="xs:string" use="optional"/>
+        <xs:attribute name="RUN_AS" type="xs:string" use="optional"/>
+        <xs:attribute name="OWNER" type="xs:string" use="optional"/>
+        <xs:attribute name="PRIORITY" type="xs:string" use="optional"/>
+        <xs:attribute name="CRITICAL" type="xs:string" use="optional"/>
+        <xs:attribute name="TASKTYPE" type="xs:string" use="optional"/>
+        <xs:attribute name="CYCLIC" type="xs:string" use="optional"/>
+        <xs:attribute name="NODEID" type="xs:string" use="optional"/>
+        <xs:attribute name="DOCLIB" type="xs:string" use="optional"/>
+        <xs:attribute name="DOCMEM" type="xs:string" use="optional"/>
+        <xs:attribute name="INTERVAL" type="xs:string" use="optional"/>
+        <xs:attribute name="OVERRIDE_PATH" type="xs:string" use="optional"/>
+        <xs:attribute name="OVERLIB" type="xs:string" use="optional"/>
+        <xs:attribute name="MEMLIB" type="xs:string" use="optional"/>
+        <xs:attribute name="CMDLINE" type="xs:string" use="optional"/>
+        <xs:attribute name="CONFIRM" type="xs:string" use="optional"/>
+        <xs:attribute name="DAYSCAL" type="xs:string" use="optional"/>
+        <xs:attribute name="WEEKSCAL" type="xs:string" use="optional"/>
+        <xs:attribute name="CONFCAL" type="xs:string" use="optional"/>
+        <xs:attribute name="RETRO" type="xs:string" use="optional"/>
+        <xs:attribute name="MAXWAIT" type="xs:int" use="optional"/>
+        <xs:attribute name="MAXRERUN" type="xs:int" use="optional"/>
+        <xs:attribute name="AUTOARCH" type="xs:string" use="optional"/>
+        <xs:attribute name="MAXDAYS" type="xs:int" use="optional"/>
+        <xs:attribute name="MAXRUNS" type="xs:int" use="optional"/>
+        <xs:attribute name="TIMEFROM" type="xs:string" use="optional"/>
+        <xs:attribute name="TIMETO" type="xs:string" use="optional"/>
+        <xs:attribute name="DAYS" type="xs:string" use="optional"/>
+        <xs:attribute name="WEEKDAYS" type="xs:string" use="optional"/>
+        <xs:attribute name="JAN" type="xs:string" use="optional"/>
+        <xs:attribute name="FEB" type="xs:string" use="optional"/>
+        <xs:attribute name="MAR" type="xs:string" use="optional"/>
+        <xs:attribute name="APR" type="xs:string" use="optional"/>
+        <xs:attribute name="MAY" type="xs:string" use="optional"/>
+        <xs:attribute name="JUN" type="xs:string" use="optional"/>
+        <xs:attribute name="JUL" type="xs:string" use="optional"/>
+        <xs:attribute name="AUG" type="xs:string" use="optional"/>
+        <xs:attribute name="SEP" type="xs:string" use="optional"/>
+        <xs:attribute name="OCT" type="xs:string" use="optional"/>
+        <xs:attribute name="NOV" type="xs:string" use="optional"/>
+        <xs:attribute name="DEC" type="xs:string" use="optional"/>
+        <xs:attribute name="DATE" type="xs:string" use="optional"/>
+        <xs:attribute name="RERUNMEM" type="xs:string" use="optional"/>
+        <xs:attribute name="DAYS_AND_OR" type="xs:string" use="optional"/>
+        <xs:attribute name="CATEGORY" type="xs:string" use="optional"/>
+        <xs:attribute name="SHIFT" type="xs:string" use="optional"/>
+        <xs:attribute name="SHIFTNUM" type="xs:string" use="optional"/>
+        <xs:attribute name="PDSNAME" type="xs:string" use="optional"/>
+        <xs:attribute name="MINIMUM" type="xs:string" use="optional"/>
+        <xs:attribute name="PREVENTNCT2" type="xs:string" use="optional"/>
+        <xs:attribute name="OPTION" type="xs:string" use="optional"/>
+        <xs:attribute name="FROM" type="xs:string" use="optional"/>
+        <xs:attribute name="PAR" type="xs:string" use="optional"/>
+        <xs:attribute name="SYSDB" type="xs:string" use="optional"/>
+        <xs:attribute name="DUE_OUT" type="xs:string" use="optional"/>
+        <xs:attribute name="RETEN_DAYS" type="xs:string" use="optional"/>
+        <xs:attribute name="RETEN_GEN" type="xs:string" use="optional"/>
+        <xs:attribute name="TASK_CLASS" type="xs:string" use="optional"/>
+        <xs:attribute name="PREV_DAY" type="xs:string" use="optional"/>
+        <xs:attribute name="ADJUST_COND" type="xs:string" use="optional"/>
+        <xs:attribute name="JOBS_IN_GROUP" type="xs:string" use="optional"/>
+        <xs:attribute name="LARGE_SIZE" type="xs:string" use="optional"/>
+        <xs:attribute name="IND_CYCLIC" type="xs:string" use="optional"/>
+        <xs:attribute name="CREATION_USER" type="xs:string" use="optional"/>
+        <xs:attribute name="CREATION_DATE" type="xs:string" use="optional"/>
+        <xs:attribute name="CREATION_TIME" type="xs:string" use="optional"/>
+        <xs:attribute name="CHANGE_USERID" type="xs:string" use="optional"/>
+        <xs:attribute name="CHANGE_DATE" type="xs:string" use="optional"/>
+        <xs:attribute name="CHANGE_TIME" type="xs:string" use="optional"/>
+        <xs:attribute name="JOB_VERSION" type="xs:string" use="optional"/>
+        <xs:attribute name="RULE_BASED_CALENDAR_RELATIONSHIP" type="xs:string" use="optional"/>
+        <xs:attribute name="TAG_RELATIONSHIP" type="xs:string" use="optional"/>
+        <xs:attribute name="TIMEZONE" type="xs:string" use="optional"/>
+        <xs:attribute name="APPL_TYPE" type="xs:string" use="optional"/>
+        <xs:attribute name="APPL_VER" type="xs:string" use="optional"/>
+        <xs:attribute name="APPL_FORM" type="xs:string" use="optional"/>
+        <xs:attribute name="CM_VER" type="xs:string" use="optional"/>
+        <xs:attribute name="MULTY_AGENT" type="xs:string" use="optional"/>
+        <xs:attribute name="ACTIVE_FROM" type="xs:string" use="optional"/>
+        <xs:attribute name="ACTIVE_TILL" type="xs:string" use="optional"/>
+        <xs:attribute name="SCHEDULING_ENVIRONMENT" type="xs:string" use="optional"/>
+        <xs:attribute name="SYSTEM_AFFINITY" type="xs:string" use="optional"/>
+        <xs:attribute name="REQUEST_NJE_NODE" type="xs:string" use="optional"/>
+        <xs:attribute name="STAT_CAL" type="xs:string" use="optional"/>
+        <xs:attribute name="INSTREAM_JCL" type="xs:string" use="optional"/>
+        <xs:attribute name="USE_INSTREAM_JCL" type="xs:string" use="optional"/>
+        <xs:attribute name="DUE_OUT_DAYSOFFSET" type="xs:string" use="optional"/>
+        <xs:attribute name="FROM_DAYSOFFSET" type="xs:string" use="optional"/>
+        <xs:attribute name="TO_DAYSOFFSET" type="xs:string" use="optional"/>
+        <xs:attribute name="VERSION_OPCODE" type="xs:string" use="optional"/>
+        <xs:attribute name="IS_CURRENT_VERSION" type="xs:string" use="optional"/>
+        <xs:attribute name="VERSION_SERIAL" type="xs:int" use="optional"/>
+        <xs:attribute name="VERSION_HOST" type="xs:string" use="optional"/>
+        <xs:attribute name="CYCLIC_INTERVAL_SEQUENCE" type="xs:string" use="optional"/>
+        <xs:attribute name="CYCLIC_TIMES_SEQUENCE" type="xs:string" use="optional"/>
+        <xs:attribute name="CYCLIC_TOLERANCE" type="xs:int" use="optional"/>
+        <xs:attribute name="CYCLIC_TYPE" type="xs:string" use="optional"/>
+        <xs:attribute name="PARENT_FOLDER" type="xs:string" use="optional"/>
+        <xs:attribute name="PARENT_TABLE" type="xs:string" use="optional"/>
+        <xs:attribute name="ODATE" type="xs:string" use="optional"/>
+        <xs:attribute name="FPROCS" type="xs:string" use="optional"/>
+        <xs:attribute name="TPGMS" type="xs:string" use="optional"/>
+        <xs:attribute name="TPROCS" type="xs:string" use="optional"/>
+    </xs:complexType>
+    <xs:complexType name="SetVarDataOld">
+        <xs:attribute name="EXP" type="xs:string" use="optional"/>
+    </xs:complexType>
+    <xs:simpleType name="emBoolean">
+        <xs:restriction base="xs:string">
+            <xs:enumeration value="0"/>
+            <xs:enumeration value="1"/>
+            <xs:enumeration value="True"/>
+            <xs:enumeration value="true"/>
+            <xs:enumeration value="False"/>
+            <xs:enumeration value="false"/>
+        </xs:restriction>
+    </xs:simpleType>
+<!-- Global Type definitions End -->
+
+    <xs:element name="DEFTABLE">
+        <xs:complexType>
+            <xs:sequence minOccurs="0" maxOccurs="unbounded">
+                <xs:choice>
+                    <xs:element name="WORKSPACE" type="WorkspaceData" minOccurs="0" maxOccurs="1"/>
+                    <xs:element name="FOLDER" type="SimpleFolder" minOccurs="0" maxOccurs="unbounded"/>
+                    <xs:element name="SCHED_TABLE" type="SimpleFolder" minOccurs="0" maxOccurs="unbounded"/>
+                    <xs:element name="TABLE" type="SimpleFolder" minOccurs="0" maxOccurs="unbounded"/>
+                    <xs:element name="SMART_FOLDER" type="SmartFolder" minOccurs="0" maxOccurs="unbounded"/>
+                    <xs:element name="SMART_TABLE" type="SmartTable" minOccurs="0" maxOccurs="unbounded"/>
+                    <xs:element name="SCHED_GROUP" type="SmartTable" minOccurs="0" maxOccurs="unbounded"/>
+                </xs:choice>
+            </xs:sequence>
+        </xs:complexType>
+    </xs:element>
+</xs:schema>
