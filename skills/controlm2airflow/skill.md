@@ -22,6 +22,7 @@ The output is a Python script that defines an Apache Airflow DAG. must follow st
 | Error alert | uses email_on_failure attriute which default is false (add all DAGs) | `email_on_failure=False`|
 | Retry alert | uses email_on_retry attriute which default is false (add all DAGs) | `email_on_retry=False` |
 | SLA Alert | uses DeadlineAlert of Airflow 3.x  | `DeadlineAlert` |
+| Timetables | Use a custom `Timetable` class when the schedule cannot be expressed as a cron string (e.g. banking holidays, special run dates). Emit `# TODO: implement custom Timetable` and `schedule=None` as placeholder. | `schedule=None  # TODO: implement custom Timetable` |
 
 ### execution_period Derivation
 Derive `<execution_period>` suffix from the folder name:
@@ -88,6 +89,7 @@ Translate Control-M date/variable expressions to Airflow Jinja templates:
 
 > Default: if no schedule can be derived, use `schedule=None` and emit `# TODO: set schedule` comment.
 > `TIMEFROM` format is `HHMM` — convert to cron as `MM HH * * *`.
+> If the schedule involves non-standard dates (banking holidays, special calendars — indicated by `DAYSCAL` or `CONFCAL` attributes), use `schedule=None` and emit `# TODO: implement custom Timetable` instead of a cron string.
 
 
 ## Constraints & Assumptions
