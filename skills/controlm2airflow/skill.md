@@ -73,8 +73,12 @@ Translate Control-M date/variable expressions to Airflow Jinja templates:
    e. Add `ExternalTaskSensor` for any dependency referencing a job outside this folder.
 4. Coding style refer to `Coding Style`
 5. Write the generated DAG to a `.py` file.
-6. Verify the generated DAG by running `python <output_file>.py` inside the `.venv` (see Setup) — this catches both syntax errors and import errors. Fix all errors before finishing.
-7. For any unsupported job type, emit a `# TODO:` comment at the task location and log a warning.
+6. Check syntax of any shell script or PowerShell embedded in `SSHOperator` or `PsrpOperator` — ensure backslashes are escaped and string delimiters are valid Python.
+7. Verify the generated DAG by running `python <output_file>.py` inside the `.venv` (see Setup):
+   - If it exits with code 0 → proceed to step 8.
+   - If it fails → fix the error, re-run verification, repeat until clean.
+   - **Do not deliver the file until `python <output_file>.py` exits with code 0. This step is a hard gate.**
+8. For any unsupported job type, emit a `# TODO:` comment at the task location and log a warning.
 
 ### Schedule Mapping
 
@@ -99,7 +103,7 @@ Translate Control-M date/variable expressions to Airflow Jinja templates:
 - Unsupported job types emit a `# TODO:` comment in the output and log a warning
 - All identifiers lowercased
 - Target: Airflow 3.x with classic operators (no Taskflow API)
-- Generated DAG must pass `python <dag>.py` (inside `.venv`) with no errors before it is considered complete
+- Generated DAG must pass `python <dag>.py` (inside `.venv`) with exit code 0 before it is considered complete — fix and re-verify in a loop until clean, never deliver a failing file
 
 
 ## Coding style
