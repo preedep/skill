@@ -17,7 +17,7 @@ The output is a Python script that defines an Apache Airflow DAG. must follow st
 | Control-M Folder | Smart Folder / Control-M Folder replacement with DAG level |   |
 | Control-M Job | Control-M Job replacement with DAG task |  |
 | Control-M Job Type | Control-M Job Type replacement with Operator or Sensor |  |
-| Control-M Job dependencies | >> operator is used to define task dependencies | `task_1 >> task_2` |
+| Control-M Job dependencies | >> operator is used to define task dependencies which focus in same folder| `task_1 >> task_2` |
 | ODATE Replacement | ODATE values are replaced with Airflow 'logical date' | `{{ logical_date}}` or `{{ ds_nodash }}` or `{{ ds }}` |
 | Error alert | uses email_on_failure attriute which default is false (add all DAGs) | `email_on_failure=False`|
 | Retry alert | uses email_on_retry attriute which default is false (add all DAGs) | `email_on_retry=False` |
