@@ -125,6 +125,71 @@ pip install apache-airflow \
   - TIME_LIMIT is sensor timeout
   - poke_interval = TIME_LIMIT/NUM_OF_ITERATIONS
   - START_TIME = DAG schedule
+4. APPL_TYPE = `AWS`
+  - Check variable AWS-*
+  - if SERVICE_TYPE = `STEP` then use `StepFunctionStartExecutionOperator` and wait for completion with `StepFunctionExecutionSensor`\
+  - STEP_NAME = `state_machine_arn`
+  - STEP_EXECUTION_NAME = `name`
+  - STEP_PAYLOAD_TYPE=JSON => `input=json.dumps(...)`
+
+  ```python
+  # Example DAG 
+  from airflow import DAG
+  from airflow.providers.amazon.aws.operators.step_function import (
+      StepFunctionStartExecutionOperator
+  )
+  from airflow.providers.amazon.aws.sensors.step_function import (
+      StepFunctionExecutionSensor
+  )
+  
+  from datetime import datetime, timedelta
+  import json
+  
+  with DAG(
+      dag_id="nnss_batch_import_bulk_file_prod",
+      start_date=datetime(2026, 1, 1),
+      schedule="0 * * * *",
+      catchup=False,
+  ) as dag:
+  
+      start_step = StepFunctionStartExecutionOperator(
+          task_id="start_step_function",  
+          aws_conn_id="aws_nssctrlm",
+          state_machine_arn=(
+              "arn:aws:states:ap-southeast-1:"
+              "123456789012:"
+              "stateMachine:"
+              "AP1030-NSS-nnss-batch-import-bulk-file-prod"
+          ),
+          name="nnss-batch-import-bulk-file-prod-{{ ts_nodash }}",
+          input=json.dumps({
+              "filename": (
+                  "/LEADS/"
+                  "SmsLEADs_Unsecure-"
+                  "{{ logical_date.strftime('%Y-%m-%d') }}.txt"
+              ),
+              "skipheader": "false",
+              "formatter": None
+          }),
+      )
+      wait_for_finish = StepFunctionExecutionSensor(
+          task_id="wait_for_finish",
+  
+          aws_conn_id="aws_nssctrlm",
+  
+          execution_arn=(
+              "{{ ti.xcom_pull(task_ids='start_step_function') }}"
+          ),
+  
+          poke_interval=30,
+  
+          timeout=3600,
+  
+          mode="reschedule",
+      )
+  
+      start_step >> wait_for_finish
+  ```
 
 
 ## Dependency Mapping — INCOND/OUTCOND Pattern Reference
