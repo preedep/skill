@@ -23,26 +23,71 @@ The output is a Python script that defines an Apache Airflow DAG. must follow st
 | Retry alert | uses email_on_retry attriute which default is false (add all DAGs) | `email_on_retry=False` |
 | SLA Alert | uses DeadlineAlert of Airflow 3.x  | `DeadlineAlert` |
 
+### execution_period Derivation
+Derive `<execution_period>` suffix from the folder name:
+
+| Folder name suffix | Period |
+|--------------------|--------|
+| `_DAILY` | `d` |
+| `_WEEKLY` | `w` |
+| `_MONTHLY` | `m` |
+| `_YEARLY` or `_ANNUAL` | `y` |
+| *(not found)* | `d` (default — emit `# TODO: verify period`) |
+
+
+## Variable Substitution Reference
+
+Translate Control-M date/variable expressions to Airflow Jinja templates:
+
+| Control-M | Airflow Jinja |
+|-----------|---------------|
+| `%%$ODATE` / `%%ODATE` | `{{ ds_nodash }}` |
+| `%%$YEAR.` | `{{ logical_date.strftime('%Y') }}` |
+| `%%MONTH.` | `{{ logical_date.strftime('%m') }}` |
+| `%%DAY.` | `{{ logical_date.strftime('%d') }}` |
+| `%%PREV` (previous date) | `{{ (logical_date - macros.timedelta(days=1)).strftime('%Y%m%d') }}` |
+| `%%SUBSTR %%PREV 1 4` (year part) | `{{ (logical_date - macros.timedelta(days=1)).strftime('%Y') }}` |
+| `%%SUBSTR %%PREV 5 2` (month part) | `{{ (logical_date - macros.timedelta(days=1)).strftime('%m') }}` |
+| `%%SUBSTR %%PREV 7 2` (day part) | `{{ (logical_date - macros.timedelta(days=1)).strftime('%d') }}` |
+
+> For any unrecognised `%%` expression, emit it as a `# TODO:` comment and use a placeholder string.
+
 
 ## Behavior
 1. Parse the input XML and extract all Control-M folder and job metadata.
 2. Group jobs by folder — each folder produces one DAG file.
 3. For each folder:
    a. Derive DAG file name and DAG ID from `<company>-<app_id>-<app_code>-<folder_name>-<env>` (lowercased).
-   b. Map the folder's schedule to an Airflow `schedule` parameter and default timezone is "Asia/Bangkok".
+   b. Map the folder's schedule to an Airflow `schedule` parameter using the **Schedule Mapping** rules below; default timezone is "Asia/Bangkok".
    c. For each job in the folder, create one Airflow task:
       - Derive task ID from `<app_id>-<app_code>-task_<job_name>-<period>` (lowercased).
+      - Derive `<period>` using the execution_period derivation rule (see Output section).
       - Select the operator based on job type (see Constraints).
       - Match job type (Appl_Type) with pattern `Control-M Appl_Type Mapping - Airflow Pattern Reference`
       - Apply SLA if defined on the job which is converted to `DeadlineAlert` (new standard in airflow 3.x).
       - Wire `on_failure_callback` to the standard alert hook.
       - Write comments 'control-m configuration' of the control-mjob to the task location.
-   d. Build task dependencies from Control-M job dependencies (`INCOND`/`OUTCOND`) which refer to reference `Dependency Mapping — INCOND/OUTCOND Pattern Reference` find job dependencies in the same folder.
+      - Translate all Control-M `%%` variable expressions using the **Variable Substitution Reference**.
+   d. Build task dependencies from Control-M job dependencies (`INCOND`/`OUTCOND`) using the **INCOND Resolution Algorithm** in the Dependency Mapping section.
    e. Add `ExternalTaskSensor` for any dependency referencing a job outside this folder.
 4. Coding style refer to `Coding Style`
 5. Write the generated DAG to a `.py` file.
 6. Verify the generated DAG by running `python <output_file>.py` inside the `.venv` (see Setup) — this catches both syntax errors and import errors. Fix all errors before finishing.
 7. For any unsupported job type, emit a `# TODO:` comment at the task location and log a warning.
+
+### Schedule Mapping
+
+| Control-M attribute | Value | Airflow schedule |
+|---------------------|-------|-----------------|
+| `FOLDER_ORDER_METHOD` | `SYSTEM` | scheduled — derive cron from `TIMEFROM` + folder name suffix |
+| `FOLDER_ORDER_METHOD` | `""` (empty) | `None` (manually triggered) |
+| `DAYS` | `ALL` + folder suffix `_DAILY` | `"<MM> <HH> * * *"` from `TIMEFROM` |
+| `DAYS` | `ALL` + folder suffix `_WEEKLY` | `"<MM> <HH> * * 0"` (Sunday) |
+| `DAYS` | `ALL` + folder suffix `_MONTHLY` | `"<MM> <HH> 1 * *"` (1st of month) |
+| `CYCLIC=1` + `INTERVAL` | e.g. `00060M` | `"@hourly"` or derive cron from minutes |
+
+> Default: if no schedule can be derived, use `schedule=None` and emit `# TODO: set schedule` comment.
+> `TIMEFROM` format is `HHMM` — convert to cron as `MM HH * * *`.
 
 
 ## Constraints & Assumptions
@@ -102,94 +147,96 @@ pip install apache-airflow \
 
 > **When to consult the templates:** Read the matching template when generating a task operator — e.g. `templates/ssh-remote-unix/` for `OS`/Unix jobs, `templates/file-transfer-onprem-onprem-unix/` for `FILE_TRANS` Unix→Unix, `templates/psrp-operator/` for Windows jobs. Use the template's variable zone, callback, and `default_args` patterns as the baseline.
 
-## Control-M Appl_Type / Job Type Mapping - Airflow Pattern Reference
-1. APPL_TYPE = `FILE_TRANS`
-  - Check variables FTP-*
-  - L = Left , R = Right (Left is the source, Right is the target)
-  - FTP_<L or R>OSTYPE is Operating System type (ex. Windows , Unix)
-  - if Operating System is Unix/Linux then use `SSHOperator` or Windows uses `PsrpOperator` to remote to Left Host and run script/command  
-      - run pre-command if need which run via `bash` or `powershell` operator
-      - run the comand file transfer which depend on Right Host via `bash` or `powershell` operator
-        | Right Host: | Command |
-        | ----------- | ------ |
-        | Windows/Unix/Linux | lftp|
-        | Azure |azcopy |
-        | AWS |aws s3 cp/sync |
-      - run post-command if need which run via `bash` or `powershell` operator
-2. APPL_TYPE = `OS`
-  - Check variable CMDLINE 
-  - if Operating System is Unix/Linux then use `bash` or Windows uses `powershell` operator to run the command
-3. APPL_TYPE = `FileWatch`
-  - Check variable FileWatch-*
-  - Uses Airflow *Sensor 
-  - TIME_LIMIT is sensor timeout
-  - poke_interval = TIME_LIMIT/NUM_OF_ITERATIONS
-  - START_TIME = DAG schedule
-4. APPL_TYPE = `AWS`
-  - Check variable AWS-*
-  - if SERVICE_TYPE = `STEP` then use `StepFunctionStartExecutionOperator` and wait for completion with `StepFunctionExecutionSensor`\
-  - STEP_NAME = `state_machine_arn`
-  - STEP_EXECUTION_NAME = `name`
-  - STEP_PAYLOAD_TYPE=JSON => `input=json.dumps(...)`
 
-  ```python
-  # Example DAG 
-  from airflow import DAG
-  from airflow.providers.amazon.aws.operators.step_function import (
-      StepFunctionStartExecutionOperator
-  )
-  from airflow.providers.amazon.aws.sensors.step_function import (
-      StepFunctionExecutionSensor
-  )
-  
-  from datetime import datetime, timedelta
-  import json
-  
-  with DAG(
-      dag_id="nnss_batch_import_bulk_file_prod",
-      start_date=datetime(2026, 1, 1),
-      schedule="0 * * * *",
-      catchup=False,
-  ) as dag:
-  
-      start_step = StepFunctionStartExecutionOperator(
-          task_id="start_step_function",  
-          aws_conn_id="aws_nssctrlm",
-          state_machine_arn=(
-              "arn:aws:states:ap-southeast-1:"
-              "123456789012:"
-              "stateMachine:"
-              "AP1030-NSS-nnss-batch-import-bulk-file-prod"
-          ),
-          name="nnss-batch-import-bulk-file-prod-{{ ts_nodash }}",
-          input=json.dumps({
-              "filename": (
-                  "/LEADS/"
-                  "SmsLEADs_Unsecure-"
-                  "{{ logical_date.strftime('%Y-%m-%d') }}.txt"
-              ),
-              "skipheader": "false",
-              "formatter": None
-          }),
-      )
-      wait_for_finish = StepFunctionExecutionSensor(
-          task_id="wait_for_finish",
-  
-          aws_conn_id="aws_nssctrlm",
-  
-          execution_arn=(
-              "{{ ti.xcom_pull(task_ids='start_step_function') }}"
-          ),
-  
-          poke_interval=30,
-  
-          timeout=3600,
-  
-          mode="reschedule",
-      )
-  
-      start_step >> wait_for_finish
-  ```
+## Control-M Appl_Type / Job Type Mapping - Airflow Pattern Reference
+
+### Connection ID Derivation
+- `ssh_conn_id` = `"ssh_" + NODEID.lower()` (e.g. `NODEID="dunlop"` → `"ssh_dunlop"`)
+- `psrp_conn_id` = `"psrp_" + NODEID.lower()` (e.g. `NODEID="winsrv01"` → `"psrp_winsrv01"`)
+- `RUN_AS` maps to the remote username inside the connection config — document in `# comment`, not in code
+- `aws_conn_id` = `"aws_" + AWS-ACCOUNT.lower()` (e.g. `AWS-ACCOUNT="nssctrlm"` → `"aws_nssctrlm"`)
+
+### 1. APPL_TYPE = `FILE_TRANS`
+- Check variables `FTP-*`
+- L = Left (source), R = Right (destination)
+- `FTP_<L|R>OSTYPE` is the OS type (e.g. `Windows`, `Unix`)
+- Left OS = Unix/Linux → use `SSHOperator`; Left OS = Windows → use `PsrpOperator`
+- Transfer command depends on Right Host type:
+
+  | Right Host | Command |
+  |------------|---------|
+  | Windows/Unix/Linux | `lftp` |
+  | Azure | `azcopy` |
+  | AWS S3 (`FTP-CONNTYPE2=S3`) | `aws s3 cp` (see S3 specific rules below) |
+
+- Flow: pre-command (if any) → transfer command → post-command (if any)
+
+#### FILE_TRANS → S3 Specific Rules (`FTP-CONNTYPE2=S3`)
+- Operator: `SSHOperator` on `FTP-LHOST` (local agent, e.g. `"dunlop"`)
+- `ssh_conn_id` derived from `NODEID` (see Connection ID Derivation)
+- Command: `aws s3 cp <FTP-LPATH1> s3://<FTP-S3_BUCKET_NAME><FTP-RPATH1><filename>`
+- `FTP-S3_BUCKET_NAME` variable maps to the S3 bucket name
+- `FTP-UPLOAD1=1` → upload (local → S3); `FTP-UPLOAD1=0` → download (S3 → local)
+- `FTP-TYPE1=I` → binary (`--no-progress`); `FTP-TYPE1=A` → ASCII
+- `FTP-TRANSFER_NUM` → number of transfer blocks (iterate `LPATH1/RPATH1`, `LPATH2/RPATH2`, …)
+
+### 2. APPL_TYPE = `OS`
+- Check variable `CMDLINE`
+- Left OS = Unix/Linux → `SSHOperator` with bash command
+- Left OS = Windows → `PsrpOperator` with PowerShell/batch command
+- `ssh_conn_id` / `psrp_conn_id` derived from `NODEID` (see Connection ID Derivation)
+
+### 3. APPL_TYPE = `FileWatch`
+- Check variables `FileWatch-*`
+- Use `FileSensor` from `airflow.providers.standard.sensors.filesystem`
+- `mode='reschedule'`
+- `timeout` = `TIME_LIMIT` (in seconds)
+- `poke_interval` = `TIME_LIMIT / NUM_OF_ITERATIONS`
+- `START_TIME` = aligns with DAG schedule
+
+### 4. APPL_TYPE = `AWS`
+- Check variables `AWS-*`
+- If `SERVICE_TYPE=STEP` → use `StepFunctionStartExecutionOperator` + `StepFunctionExecutionSensor`
+- `aws_conn_id` derived from `AWS-ACCOUNT` (see Connection ID Derivation)
+
+#### AWS Step Function ARN Construction
+```
+arn:aws:states:<region>:<account_id>:stateMachine:<AWS-STEP_NAME>
+```
+- `region`: default `ap-southeast-1` (Bangkok)
+- `account_id`: use `"ACCOUNT_ID_PLACEHOLDER"` — requires human to fill
+- `execution name`: `AWS-STEP_EXECUTION_NAME + "-{{ ts_nodash }}"` (for uniqueness)
+- `payload`: from `AWS-STEP_PAYLOAD_JSON-N001-VALUE` — unescape HTML entities (`&quot;` → `"`, `%4E` → `\n`)
+
+```python
+from airflow.providers.amazon.aws.operators.step_function import StepFunctionStartExecutionOperator
+from airflow.providers.amazon.aws.sensors.step_function import StepFunctionExecutionSensor
+import json
+
+start_step = StepFunctionStartExecutionOperator(
+    task_id="start_step_function",
+    aws_conn_id="aws_nssctrlm",
+    state_machine_arn=(
+        "arn:aws:states:ap-southeast-1:"
+        "ACCOUNT_ID_PLACEHOLDER:"
+        "stateMachine:"
+        "<AWS-STEP_NAME>"
+    ),
+    name="<AWS-STEP_EXECUTION_NAME>-{{ ts_nodash }}",
+    input=json.dumps({ ... }),  # from AWS-STEP_PAYLOAD_JSON-N001-VALUE
+)
+
+wait_for_finish = StepFunctionExecutionSensor(
+    task_id="wait_for_finish",
+    aws_conn_id="aws_nssctrlm",
+    execution_arn="{{ ti.xcom_pull(task_ids='start_step_function') }}",
+    poke_interval=30,
+    timeout=3600,
+    mode="reschedule",
+)
+
+start_step >> wait_for_finish
+```
 
 
 ## Dependency Mapping — INCOND/OUTCOND Pattern Reference
@@ -236,3 +283,15 @@ This means: the predecessor emits its name as the outcond token; the successor w
 | `O`   | 330   | 0.6% | **OR** — any one predecessor condition is sufficient |
 
 AND is the default. When a job has multiple predecessors, assume AND unless `and_or = "O"` is explicit.
+
+---
+
+### 3. INCOND Resolution Algorithm
+
+For each `INCOND` on a job, apply this decision tree:
+
+1. Extract `JOB_NAME` from the condition string by stripping the known status suffix (`-ENDED-OK`, `-ENDED`, `-END-OK`, `-ENED-OK`, `-RERUN`, `-M2F`, `-SAT`, `-SUN`, `-SPECIFIC`, `-ENDED-OK-<N>`).
+2. Is that `JOB_NAME` present in **this folder's** job list?
+   - **YES** → wire as a task dependency: `predecessor_task >> this_task`
+   - **NO** → add an `ExternalTaskSensor` pointing to the external DAG that owns that job (`external_dag_id` must be derived from the folder that contains that job)
+3. If `AND_OR="O"` with multiple INCONDs → use `trigger_rule=TriggerRule.ONE_SUCCESS` instead of the default `ALL_SUCCESS`
