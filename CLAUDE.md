@@ -13,7 +13,9 @@ skill/
 ├── .gitignore        (Rust defaults)
 └── skills/           # individual skill implementations
     ├── controlm2airflow/   # Convert Control-M jobs to Apache Airflow DAGs
-    │   └── skill.md
+    │   ├── README.md
+    │   ├── skill.md
+    │   └── controlm-schema.xsd
     └── <skill-name>/       # (future skills follow the same pattern)
         ├── skill.md        # skill definition: purpose, inputs, outputs, examples
         └── ...             # supporting assets or code
