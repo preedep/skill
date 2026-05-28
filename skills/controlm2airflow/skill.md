@@ -55,9 +55,75 @@ Translate Control-M date/variable expressions to Airflow Jinja templates:
 > For any unrecognised `%%` expression, emit it as a `# TODO:` comment and use a placeholder string.
 
 
+## Output Artifacts
+
+For each Control-M folder the agent produces **two files**:
+
+| Artifact | Path | Purpose |
+|----------|------|---------|
+| DAG template | `output/<dag_filename>.py` | Airflow DAG with `##KEY##` placeholders for env-specific values |
+| Config JSON | `output/config/<env>/<dag_filename>.json` | Env-specific values merged by DevOps pipeline via `generate_dag.py` |
+
+The DevOps pipeline runs `generate_dag.py` which replaces every `##KEY##` token in the DAG template with the corresponding value from the JSON config, producing the final deployable DAG. **Never hardcode env-specific values directly in the DAG template** — they must come from the config JSON via `##KEY##` placeholders.
+
+### Config JSON Schema
+
+#### Common fields (all templates)
+
+| Field | Type | Description | Derived from |
+|-------|------|-------------|-------------|
+| `COMPANY` | string | Company prefix | CLI `--company` argument |
+| `PROJECT` | string | App ID | CLI `--app_id` argument |
+| `APP_CODE` | string | App code | CLI `--app_code` argument |
+| `DAG_NAME` | string | Folder name (lowercase) | Control-M `FOLDER_NAME` |
+| `ENV` | string | Environment (`dev`/`sit`/`uat`/`prod`) | CLI `--env` argument |
+| `ACTIVE` | bool | DAG active on deploy | `true` by default |
+| `SCHEDULE` | string | Cron expression | Derived from Schedule Mapping |
+| `TAGS` | array[string] | Airflow UI tags — all lowercase | `[company, app_id, app_code, dag_name, env]` |
+| `EMAIL_LIST` | array[string] | Alert recipients | `[]` by default |
+| `ENABLE_EMAIL_NOTIFICATION_SUCCESS` | bool | Email on DAG success | `false` by default |
+| `ENABLE_EMAIL_NOTIFICATION_FAIL` | bool | Email on task failure | `false` by default |
+
+#### Operator-specific fields
+
+| Template | Extra config fields |
+|----------|-------------------|
+| **ssh-remote-unix** | `SSH_CONN_ID`, `REMOTE_HOST` |
+| **psrp-operator** | `PSRP_CONN_ID`, `REMOTE_HOST` |
+| **file-transfer-onprem-onprem-unix** | `SSH_CONN_ID`, `REMOTE_HOST`, `SOURCE_PATH`, `DESTINATION_HOST`, `DESTINATION_PATH`, `DESTINATION_USER`, `DESTINATION_PORT`, `DESTINATION_PROTOCOL`, `DESTINATION_PASSWORD_SECRET` |
+| **file-transfer-onprem-onprem-windows** | `PSRP_CONN_ID`, `REMOTE_HOST`, `SOURCE_PATH`, `DESTINATION_HOST`, `DESTINATION_PATH`, `DESTINATION_USER`, `DESTINATION_PORT`, `DESTINATION_PROTOCOL`, `DESTINATION_PASSWORD_SECRET` |
+| **file-transfer-onprem-blob** | `SSH_CONN_ID`, `REMOTE_HOST`, `SOURCE_HOST`, `SOURCE_PATH`, `SOURCE_USER`, `SOURCE_PORT`, `SOURCE_PROTOCOL`, `SOURCE_PASSWORD_SECRET`, `AZURE_STORAGE_ACCOUNT`, `AZURE_CONTAINER`, `AZURE_BLOB_PREFIX`, `AZURE_IDENTITY_CLIENT_ID` |
+| **file-transfer-blob-blob** | `SSH_CONN_ID`, `REMOTE_HOST`, `SOURCE_STORAGE_ACCOUNT`, `SOURCE_CONTAINER`, `SOURCE_BLOB_PREFIX`, `DEST_STORAGE_ACCOUNT`, `DEST_CONTAINER`, `DEST_BLOB_PREFIX`, `IDENTITY_CLIENT_ID` |
+| **file-transfer-onprem-s3** | `SSH_CONN_ID`, `REMOTE_HOST`, `SOURCE_HOST`, `SOURCE_PATH`, `SOURCE_USER`, `SOURCE_PORT`, `SOURCE_PROTOCOL`, `SOURCE_PASSWORD_SECRET`, `S3_BUCKET`, `S3_PREFIX`, `S3_REGION`, `S3_ENDPOINT_URL`, `AWS_PROFILE` |
+| **file-transfer-s3-s3** | `SSH_CONN_ID`, `REMOTE_HOST`, `SOURCE_S3_BUCKET`, `SOURCE_S3_PREFIX`, `SOURCE_S3_REGION`, `SOURCE_S3_ENDPOINT_URL`, `DEST_S3_BUCKET`, `DEST_S3_PREFIX`, `DEST_S3_REGION`, `DEST_S3_ENDPOINT_URL`, `AWS_PROFILE` |
+| **kube-pod-operator** | `CLUSTER_CONFIG_ENV`, `NAMESPACE`, `IMAGE`, `SERVICE_ACCOUNT`, `NODE_SELECTOR`, `LABELS`, `RESOURCE` |
+| **kube-job-operator** | same as kube-pod-operator + `JOB_TTL_SECONDS` |
+
+#### Key conventions
+
+- **`##KEY##` placeholders:** every env-specific value in the DAG template must use `##KEY##` syntax (e.g. `_ssh_conn_id = "##SSH_CONN_ID##"`). The pipeline does a literal string replace — no Jinja, no Python eval.
+- **`*_PASSWORD_SECRET`:** stores the **secret name/key** (e.g. Airflow Variable name or K8s secret key), never the actual password value.
+- **`{DATE}` in paths:** a template placeholder in config values replaced at runtime with `{{ ds_nodash }}` in the DAG — document this in comments.
+- **Connection ID naming:** `SSH_CONN_ID` = `ssh_<host>_<env>`, `PSRP_CONN_ID` = `psrp_<host>_<env>` — derive from Control-M `NODEID` + env.
+- **Config file naming:** `<dag_filename>.json` — same base name as the DAG template file, no `.py`.
+
+#### Template selection guide
+
+| Control-M job type | Left OS | Right host | Template |
+|--------------------|---------|------------|----------|
+| `OS` | Unix/Linux | — | `ssh-remote-unix` |
+| `OS` | Windows | — | `psrp-operator` |
+| `FILE_TRANS` | Unix | Unix/Linux | `file-transfer-onprem-onprem-unix` |
+| `FILE_TRANS` | Windows | Unix/Linux | `file-transfer-onprem-onprem-windows` |
+| `FILE_TRANS` | Unix | Azure Blob | `file-transfer-onprem-blob` |
+| `FILE_TRANS` | Unix | AWS S3 | `file-transfer-onprem-s3` |
+| `FILE_TRANS` | Azure | Azure | `file-transfer-blob-blob` |
+| `FILE_TRANS` | S3 | S3 | `file-transfer-s3-s3` |
+
+
 ## Behavior
 1. Parse the input XML and extract all Control-M folder and job metadata.
-2. Group jobs by folder — each folder produces one DAG file.
+2. Group jobs by folder — each folder produces one DAG file + one config JSON.
 3. For each folder:
    a. Derive DAG file name and DAG ID from `<company>-<app_id>-<app_code>-<folder_name>-<env>` (lowercased).
    b. Map the folder's schedule to an Airflow `schedule` parameter using the **Schedule Mapping** rules below; default timezone is "Asia/Bangkok".
@@ -68,18 +134,19 @@ Translate Control-M date/variable expressions to Airflow Jinja templates:
       - Match job type (Appl_Type) with pattern `Control-M Appl_Type Mapping - Airflow Pattern Reference`
       - Apply SLA if defined on the job which is converted to `DeadlineAlert` (new standard in airflow 3.x).
       - Wire `on_failure_callback` to the standard alert hook.
-      - Write comments 'control-m configuration' of the control-mjob to the task location.
+      - Write comments 'control-m configuration and conditions INCOND/OUTCOND' of the control-mjob to the task location and task dependencies.
       - Translate all Control-M `%%` variable expressions using the **Variable Substitution Reference**.
    d. Build task dependencies from Control-M job dependencies (`INCOND`/`OUTCOND`) using the **INCOND Resolution Algorithm** in the Dependency Mapping section.
    e. Add `ExternalTaskSensor` for any dependency referencing a job outside this folder.
-4. Coding style refer to `Coding Style`
-5. Write the generated DAG to a `.py` file.
-6. Check syntax of any shell script or PowerShell embedded in `SSHOperator` or `PsrpOperator` — ensure backslashes are escaped and string delimiters are valid Python.
-7. Verify the generated DAG by running `python <output_file>.py` inside the `.venv` (see Setup):
-   - If it exits with code 0 → proceed to step 8.
+4. Generate the config JSON alongside the DAG template (see **Output Artifacts** and **Config JSON Schema**).
+5. Coding style refer to `Coding Style`
+6. Write the generated DAG template to `output/<dag_filename>.py` and config to `output/config/<env>/<dag_filename>.json`.
+7. Check syntax of any shell script or PowerShell embedded in `SSHOperator` or `PsrpOperator` — ensure backslashes are escaped and string delimiters are valid Python.
+8. Verify the generated DAG by running `python <output_file>.py` inside the `.venv` (see Setup):
+   - If it exits with code 0 → proceed to step 9.
    - If it fails → fix the error, re-run verification, repeat until clean.
    - **Do not deliver the file until `python <output_file>.py` exits with code 0. This step is a hard gate.**
-8. For any unsupported job type, emit a `# TODO:` comment at the task location and log a warning.
+9. For any unsupported job type, emit a `# TODO:` comment at the task location and log a warning.
 
 ### Schedule Mapping
 
