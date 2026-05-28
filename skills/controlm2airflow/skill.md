@@ -456,19 +456,57 @@ pip install apache-airflow \
 ### 3. APPL_TYPE = `FileWatch`
 - Check variables `FileWatch-*`
 - Check `NODEID` to determine remote host OS (refer to Node ID Information table)
-- Select sensor based on protocol/host type:
+- Select sensor/operator based on NODEID OS and protocol:
 
-| Remote host / protocol | Sensor | Provider package |
-|------------------------|--------|-----------------|
-| Local filesystem | `FileSensor` | `apache-airflow-providers-standard` |
-| Unix/Linux via SFTP | `SFTPSensor` | `apache-airflow-providers-sftp` |
-| AWS S3 | `S3KeySensor` | `apache-airflow-providers-amazon` |
-| FTPS (FTP over TLS) | No native sensor — emit `# TODO: implement FTPS file watch` and use `FileSensor` as placeholder. FTPS file watching requires a custom sensor or polling via `SSHOperator` with `lftp ls`. | — |
+| NODEID OS | Protocol | Approach | Provider package |
+|-----------|----------|----------|-----------------|
+| Airflow worker local | — | `FileSensor` | `apache-airflow-providers-standard` |
+| Unix/Linux (e.g. Dunlop, Donut) | SFTP | `SFTPSensor` | `apache-airflow-providers-sftp` |
+| Unix/Linux | FTPS | No native sensor — use `SSHOperator` with `lftp ls` polling loop; emit `# TODO: implement FTPS file watch` | — |
+| Windows (e.g. Glory) | SMB/mapped drive | No native sensor — `FileSensor` cannot reach a remote Windows path (e.g. `S:\`). Emit `# TODO: implement Windows remote file watch` and generate a `PsrpOperator` polling script as placeholder | — |
+| AWS S3 | S3 | `S3KeySensor` | `apache-airflow-providers-amazon` |
+
+> **`FileSensor` only works for files on the Airflow worker's own local filesystem.** Never use `FileSensor` for a path on a remote Windows server (e.g. `S:\`, `D:\`) or a remote Unix host — the worker cannot see those paths.
 
 - All sensors: use `mode='reschedule'` (deferrable preferred if provider supports it, then reschedule, then poke)
 - `timeout` = `TIME_LIMIT` converted to seconds
 - `poke_interval` = `TIME_LIMIT / NUM_OF_ITERATIONS`
 - `START_TIME` = aligns with DAG schedule
+
+#### Windows FileWatch — PsrpOperator polling placeholder
+
+When NODEID is Windows, generate a `PsrpOperator` task that polls for the file and exits 0 when found:
+
+```python
+# TODO: implement Windows remote file watch
+# Replace this PsrpOperator polling placeholder with a proper custom sensor when available.
+# This task polls every <poke_interval>s up to <timeout>s for the file to appear.
+app1234_testapp_task_bi_d_watcher_005_d = PsrpOperator(
+    task_id='app1234-testapp-task_bi_d_watcher_005-d',
+    psrp_conn_id='psrp_glory',
+    # RUN_AS: edwusr01
+    powershell=r"""
+$ErrorActionPreference = 'Stop'
+$FilePath = "S:\EDW\PROD\LOADS\DATA\BI_OPG_PMS\BI_EDW_EXT_OPG_PMS_CREDIT_CARD_D{{ ds_nodash }}.CTL"
+$TimeoutSec = 300
+$PollSec = 100
+$Elapsed = 0
+Write-Host "[INFO] Waiting for file: $FilePath"
+while (-not (Test-Path $FilePath)) {
+    if ($Elapsed -ge $TimeoutSec) {
+        Write-Host "[ERROR] File not found after ${TimeoutSec}s: $FilePath"
+        exit 1
+    }
+    Write-Host "[INFO] File not yet present. Elapsed: ${Elapsed}s / ${TimeoutSec}s"
+    Start-Sleep -Seconds $PollSec
+    $Elapsed += $PollSec
+}
+Write-Host "[INFO] File found: $FilePath"
+""",
+    wsman_options={"ssl": False},
+    on_failure_callback=failure_callback,
+)
+```
 
 ### 4. APPL_TYPE = `AWS`
 - Check variables `AWS-*`
