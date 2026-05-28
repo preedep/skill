@@ -12,13 +12,14 @@ The output is a Python script that defines an Apache Airflow DAG. must follow st
 | Pattern | Description |Example|
 |---------|-------------|------|
 | Naming convention DAG file | DAG file follow  `<company>-<app_id>-<app_code>-<folder_name>-<env>.py` for dag_name is existing folder name of job control  use small case (eg. acme-AP1234-pyment-abc-monthly-tab-dev.py) | `acme-AP1234-payment-abc-monthly-tab-dev.py` |
-| Naming convention DAG ID | same as filename without `.py` | `acme-AP1234-payment-abc-monthly-tab` |
+| Naming convention DAG ID | same as filename without `.py` | `acme-AP1234-payment-abc-monthly-tab-dev` |
 | Naming convention (task) | Task IDs follow `<app_id>-<app_code>-task_<task_name>-<execution_period>` for task_name is existing job name of job control  use small case (eg. AP1234-pyment-task_rt-rb2cm005-d) , for execution_period use small case (eg.  d=daily, w=weekly, m=monthly,y=yearly) | `AP1234-pyment-task_rt-rb2cm005-d` |
+| Naming convention (task Python variable) | Python variable name for each task follows `<app_id>_<app_code>_task_<task_name>_<execution_period>` (all lowercase, `-` replaced with `_`) | `ap1234_payment_task_rt_rb2cm005_d` |
 | Control-M Folder | Smart Folder / Control-M Folder replacement with DAG level |   |
 | Control-M Job | Control-M Job replacement with DAG task |  |
 | Control-M Job Type | Control-M Job Type replacement with Operator or Sensor |  |
 | Control-M Job dependencies | >> operator is used to define task dependencies which focus in same folder| `task_1 >> task_2` |
-| ODATE Replacement | ODATE values are replaced with Airflow 'logical date' | `{{ logical_date}}` or `{{ ds_nodash }}` or `{{ ds }}` |
+| ODATE Replacement | ODATE values are replaced with `{{ ds_nodash }}` (YYYYMMDD). Use `{{ ds }}` (YYYY-MM-DD) when a hyphenated date is needed. Never use bare `{{ logical_date }}` — it renders as an ISO datetime with timezone offset, not a date string. | `{{ ds_nodash }}` |
 | Error alert | uses email_on_failure attriute which default is false (add all DAGs) | `email_on_failure=False`|
 | Retry alert | uses email_on_retry attriute which default is false (add all DAGs) | `email_on_retry=False` |
 | SLA Alert | uses DeadlineAlert of Airflow 3.x  | `DeadlineAlert` |
@@ -120,11 +121,12 @@ Follow the company DAG templates — see [`templates/`](templates/) for full wor
 7. Dependencies
 
 ### Key rules
-- Task variable names: lowercased, use `_` separator (Python), but `task_id` string uses `-` (refer to Naming convention table)
-- `default_args` must include: `owner`, `depends_on_past`, `start_date`, `timezone`, `retries=3`, `retry_delay`, `retry_exponential_backoff`, `max_retry_delay`
-- DAG ID constructed as: `_company + '-' + _project + '-' + _dag_name + '-' + _env`
+- **Imports:** only import operators/sensors that are actually used in the DAG. `EmptyOperator` must be imported from `airflow.providers.standard.operators.empty` (Airflow 3.x) — never from `airflow.operators.empty` (deprecated).
+- **Task Python variable name:** `<app_id>_<app_code>_task_<job_name>_<period>` — all lowercase, `-` replaced with `_` (e.g. `app1234_testapp_task_rt_rb2cm005_d`). The `task_id` string uses `-` per the Naming convention table.
+- `default_args` must include: `owner`, `depends_on_past`, `start_date`, `timezone`, `retries=3`, `retry_delay`, `retry_exponential_backoff`, `max_retry_delay`, `email_on_failure=False`, `email_on_retry=False`
+- DAG ID constructed as: `_company + '-' + _project + '-' + _app_code + '-' + _dag_name + '-' + _env`
 - Always set `is_paused_upon_creation=not _active`
-- Callbacks wired via: `on_failure_callback=failure_callback if _enable_email_notification_fail else None`
+- DAG-level callbacks: `on_success_callback=success_callback if _enable_email_notification_success else None` and `on_failure_callback=failure_callback if _enable_email_notification_fail else None`
 
 ### Shell Script Guidelines
 
@@ -140,13 +142,13 @@ Use for shell scripts embedded in SSHOperator tasks.
 
 #### Script Format
 
-Embed shell scripts as Python raw triple-quoted strings to avoid backslash interpretation:
+Embed shell scripts as Python raw triple-quoted strings. **Do not rely on a shebang line** — SSHOperator passes the script content to the remote shell's stdin/exec; a `#!/usr/bin/env bash` line is treated as a comment and does not select the interpreter. To guarantee bash execution, wrap the entire script body with `bash -s` or use a heredoc invocation:
 
 ```python
-command=r"""
-#!/usr/bin/env bash
-...
-"""
+command=r"""bash -s << 'BASH'
+set -euo pipefail
+# ... script body ...
+BASH"""
 ```
 
 > Backslashes inside `r"""..."""` are literal — do not escape them further.
@@ -200,11 +202,13 @@ Log: start, logical date, source/destination, completion, failure reason.
 * Never hardcode passwords.
 * Use Airflow Variables or Connections.
 * Avoid printing secrets to logs.
+* **Do not use `set cmd:verbose true` in `lftp` commands** when a password is passed in the connection string — verbose mode logs the full command including the password. Omit or replace with `set cmd:verbose false`.
+* Passwords retrieved via `{{ var.value['...'] }}` Jinja will appear in the Airflow "Rendered Template" task log — emit a `# WARNING: password visible in Airflow rendered template log` comment so operators are aware.
 
 #### Output Requirements
 
 * Produce complete runnable scripts.
-* Do not generate pseudocode.
+* Do not generate pseudocode — every `lftp`, `aws`, or command block must be fully written out with all options; never use `...` as a placeholder.
 * Do not omit required variables.
 * Keep scripts enterprise-readable and maintainable.
 
@@ -290,11 +294,13 @@ Use `Write-Host "..."`. Log: start, logical date, source/destination, completion
 * Never hardcode credentials.
 * Use Airflow Variables or Connections.
 * Do not print secrets in logs.
+* **Do not use `set cmd:verbose true` in `lftp` commands** when a password is interpolated in the connection string — verbose mode logs the full command including credentials. Omit or use `set cmd:verbose false`.
+* Passwords retrieved via `{{ var.value['...'] }}` Jinja will appear in the Airflow "Rendered Template" task log — emit a `# WARNING: password visible in Airflow rendered template log` comment so operators are aware.
 
 #### Output Requirements
 
 * Produce complete runnable PowerShell scripts.
-* Do not generate pseudocode.
+* Do not generate pseudocode — every `lftp`, command block, or transfer sequence must be fully written out with all options; never use `...` as a placeholder.
 * Do not omit required variables.
 * Keep scripts enterprise-readable and maintainable.
 
