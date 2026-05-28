@@ -47,6 +47,7 @@ The output is a Python script that defines an Apache Airflow DAG. must follow st
 
 ## Constraints & Assumptions
 - One Control-M folder = one DAG file
+- All Airflow operators/sensors must not be deprecated
 - *Sensor* for priority selection => derferable mode -> reschedule -> poke
 - Unsupported job types emit a `# TODO:` comment in the output and log a warning
 - All identifiers lowercased
