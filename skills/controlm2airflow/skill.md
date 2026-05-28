@@ -481,15 +481,15 @@ When NODEID is Windows, generate a `PsrpOperator` task that polls for the file a
 # TODO: implement Windows remote file watch
 # Replace this PsrpOperator polling placeholder with a proper custom sensor when available.
 # This task polls every <poke_interval>s up to <timeout>s for the file to appear.
-app1234_testapp_task_bi_d_watcher_005_d = PsrpOperator(
-    task_id='app1234-testapp-task_bi_d_watcher_005-d',
-    psrp_conn_id='psrp_glory',
-    # RUN_AS: edwusr01
+<appid>_<appcode>_task_<jobname>_<period> = PsrpOperator(
+    task_id='<appid>-<appcode>-task_<jobname>-<period>',
+    psrp_conn_id='psrp_<nodeid>',
+    # RUN_AS: <run_as>
     powershell=r"""
 $ErrorActionPreference = 'Stop'
-$FilePath = "S:\EDW\PROD\LOADS\DATA\BI_OPG_PMS\BI_EDW_EXT_OPG_PMS_CREDIT_CARD_D{{ ds_nodash }}.CTL"
-$TimeoutSec = 300
-$PollSec = 100
+$FilePath = "<FileWatch-FILE_PATH with %%ODATE replaced by {{ ds_nodash }}>"
+$TimeoutSec = <TIME_LIMIT in seconds>
+$PollSec = <TIME_LIMIT / NUM_OF_ITERATIONS>
 $Elapsed = 0
 Write-Host "[INFO] Waiting for file: $FilePath"
 while (-not (Test-Path $FilePath)) {
