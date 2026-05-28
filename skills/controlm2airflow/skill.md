@@ -121,12 +121,15 @@ Follow the company DAG templates — see [`templates/`](templates/) for full wor
 7. Dependencies
 
 ### Key rules
-- **Imports:** only import operators/sensors that are actually used in the DAG. `EmptyOperator` must be imported from `airflow.providers.standard.operators.empty` (Airflow 3.x) — never from `airflow.operators.empty` (deprecated).
+- **Imports:** only import operators/sensors that are actually used in the DAG. `EmptyOperator` must be imported from `airflow.providers.standard.operators.empty` (Airflow 3.x) — never from `airflow.operators.empty` (deprecated). Do not import `EmptyOperator` unless a task uses it.
+- **All inputs lowercased:** `company`, `app_id`, `app_code`, `folder_name`, `env`, all tag values, task IDs, Python variable names, and the DAG ID components must always be `.lower()` — regardless of how they are provided as input. Even if the user passes `APP_ID=APP1234`, store and emit it as `app1234`.
 - **Task Python variable name:** `<app_id>_<app_code>_task_<job_name>_<period>` — all lowercase, `-` replaced with `_` (e.g. `app1234_testapp_task_rt_rb2cm005_d`). The `task_id` string uses `-` per the Naming convention table.
 - `default_args` must include: `owner`, `depends_on_past`, `start_date`, `timezone`, `retries=3`, `retry_delay`, `retry_exponential_backoff`, `max_retry_delay`, `email_on_failure=False`, `email_on_retry=False`
 - DAG ID constructed as: `_company + '-' + _project + '-' + _app_code + '-' + _dag_name + '-' + _env`
 - Always set `is_paused_upon_creation=not _active`
 - DAG-level callbacks: `on_success_callback=success_callback if _enable_email_notification_success else None` and `on_failure_callback=failure_callback if _enable_email_notification_fail else None`
+- **`dag=dag` is removed in Airflow 3.x** — do not pass `dag=dag` as a keyword argument to any operator or sensor. Declare all tasks inside a `with DAG(...) as dag:` context manager instead.
+- **`# RUN_AS` comment:** always write the actual RUN_AS username from the Control-M job (e.g. `# RUN_AS: ctrlm`) — never use a placeholder like `# RUN_AS comment`.
 
 ### Shell Script Guidelines
 
