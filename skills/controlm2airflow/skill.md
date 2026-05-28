@@ -455,9 +455,18 @@ pip install apache-airflow \
 
 ### 3. APPL_TYPE = `FileWatch`
 - Check variables `FileWatch-*`
-- Check `NODEID` for remote host is Windows or Unix/Linux (refer to Node ID Information)
-- Select `*Sensor` depend on remote host ex. `SFTPFileSensor` from `airflow.providers.standard.sensors.filesystem` or `S3KeySensor` from `airflow.providers.amazon.aws.sensors.s3`
-- `timeout` = `TIME_LIMIT` (in seconds)
+- Check `NODEID` to determine remote host OS (refer to Node ID Information table)
+- Select sensor based on protocol/host type:
+
+| Remote host / protocol | Sensor | Provider package |
+|------------------------|--------|-----------------|
+| Local filesystem | `FileSensor` | `apache-airflow-providers-standard` |
+| Unix/Linux via SFTP | `SFTPSensor` | `apache-airflow-providers-sftp` |
+| AWS S3 | `S3KeySensor` | `apache-airflow-providers-amazon` |
+| FTPS (FTP over TLS) | No native sensor — emit `# TODO: implement FTPS file watch` and use `FileSensor` as placeholder. FTPS file watching requires a custom sensor or polling via `SSHOperator` with `lftp ls`. | — |
+
+- All sensors: use `mode='reschedule'` (deferrable preferred if provider supports it, then reschedule, then poke)
+- `timeout` = `TIME_LIMIT` converted to seconds
 - `poke_interval` = `TIME_LIMIT / NUM_OF_ITERATIONS`
 - `START_TIME` = aligns with DAG schedule
 
