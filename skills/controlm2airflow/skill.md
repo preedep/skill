@@ -166,7 +166,21 @@ BASH"""
 
 #### Error Handling
 
-Use `set -euo pipefail` at the top of every script. Scripts must invoke bash explicitly to guarantee pipefail support — use `#!/usr/bin/env bash` as the first line, or wrap via `bash -c '...'` in the SSHOperator `command=` parameter. Do not rely on the remote user's default login shell, which may be `/bin/sh` (POSIX only, no `pipefail`).
+Use `set -euo pipefail` at the top of every script. Scripts must invoke bash explicitly to guarantee pipefail support — wrap the entire script body with `bash -s` or use a heredoc invocation (see Script Format above). Do not rely on the remote user's default login shell.
+
+**Important:** with `set -euo pipefail` active, a failed command causes immediate script exit — any `if [ $? -ne 0 ]` check placed *after* the command is **never reached**. Use a `trap` to emit failure logs instead:
+
+```bash
+set -euo pipefail
+
+trap 'echo "[ERROR] Script failed at line $LINENO — exit code $?"' ERR
+
+echo "[INFO] Starting ..."
+# ... commands ...
+echo "[INFO] Completed successfully"
+```
+
+The `trap ... ERR` fires on any command failure and logs the line number and exit code before the script exits. Do not use `if [ $? -ne 0 ]` after commands when `set -e` is active.
 
 * Validate critical commands explicitly.
 * Exit non-zero on failures.
