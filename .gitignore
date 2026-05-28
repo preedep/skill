@@ -25,3 +25,4 @@ input/*.*
 test_run.sh
 skills/*/templates/
 .venv/
+logs/
