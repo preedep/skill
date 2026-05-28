@@ -455,7 +455,7 @@ pip install apache-airflow \
 
 ### 3. APPL_TYPE = `FileWatch`
 - Check variables `FileWatch-*`
-- Check `NODEID` to determine remote host OS (refer to Node ID Information table)
+- Check `NODEID` to determine remote host OS (refer to `Node ID Information` table)
 - Select sensor/operator based on NODEID OS and protocol:
 
 | NODEID OS | Protocol | Approach | Provider package |
