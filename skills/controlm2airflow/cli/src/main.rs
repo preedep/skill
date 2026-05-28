@@ -8,8 +8,9 @@ mod substitution;
 
 use anyhow::{Context, Result};
 use clap::Parser;
+use std::collections::HashMap;
 use std::fs;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 use renderer::RenderContext;
 
@@ -47,6 +48,26 @@ struct Args {
     /// Only process folders matching this name pattern (substring match)
     #[arg(long)]
     folder_filter: Option<String>,
+
+    /// Verify generated DAG syntax after each file
+    #[arg(long, default_value_t = false)]
+    verify: bool,
+
+    /// Python interpreter to use for verification (default: .venv/bin/python)
+    #[arg(long, default_value = ".venv/bin/python")]
+    python: String,
+}
+
+fn verify_dag(path: &Path, python: &str) -> Result<(), String> {
+    let output = std::process::Command::new(python)
+        .arg(path)
+        .output()
+        .map_err(|e| format!("Failed to run python: {}", e))?;
+    if output.status.success() {
+        Ok(())
+    } else {
+        Err(String::from_utf8_lossy(&output.stderr).trim().to_string())
+    }
 }
 
 fn main() -> Result<()> {
@@ -63,16 +84,27 @@ fn main() -> Result<()> {
     fs::create_dir_all(&args.output)
         .with_context(|| format!("Failed to create output directory: {}", args.output.display()))?;
 
+    // Build global job→folder map for ExternalTaskSensor DAG ID derivation
+    let job_folder_map: HashMap<String, String> = folders
+        .iter()
+        .flat_map(|f| {
+            let fname = f.folder_name.clone();
+            f.jobs.iter().map(move |j| (j.jobname.to_uppercase(), fname.clone()))
+        })
+        .collect();
+
     let ctx = RenderContext {
         company: args.company.clone(),
         app_id: args.app_id.clone(),
         app_code: args.app_code.clone(),
         env: args.env.clone(),
+        job_folder_map,
     };
 
     let total = folders.len();
     let mut generated = 0;
     let mut skipped = 0;
+    let mut verify_failed = 0;
 
     for folder in &folders {
         if folder.folder_name.is_empty() {
@@ -102,7 +134,18 @@ fn main() -> Result<()> {
             Ok(content) => {
                 fs::write(&out_path, &content)
                     .with_context(|| format!("Failed to write {}", out_path.display()))?;
-                println!("[OK] {} ({} jobs)", dag_filename, folder.jobs.len());
+
+                if args.verify {
+                    match verify_dag(&out_path, &args.python) {
+                        Ok(()) => println!("[OK]   {} ({} jobs)", dag_filename, folder.jobs.len()),
+                        Err(e) => {
+                            eprintln!("[FAIL] {} — {}", dag_filename, e.lines().next().unwrap_or("syntax error"));
+                            verify_failed += 1;
+                        }
+                    }
+                } else {
+                    println!("[OK] {} ({} jobs)", dag_filename, folder.jobs.len());
+                }
                 generated += 1;
             }
             Err(e) => {
@@ -116,6 +159,14 @@ fn main() -> Result<()> {
         "\nDone: {}/{} folders generated, {} skipped",
         generated, total, skipped
     );
+
+    if args.verify {
+        let passed = generated - verify_failed;
+        println!("Verify: {}/{} passed, {} failed", passed, generated, verify_failed);
+        if verify_failed > 0 {
+            std::process::exit(1);
+        }
+    }
 
     Ok(())
 }

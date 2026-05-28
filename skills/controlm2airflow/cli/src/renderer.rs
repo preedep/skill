@@ -1,5 +1,6 @@
 use anyhow::Result;
 use minijinja::Environment;
+use std::collections::HashMap;
 
 use crate::dependencies::{resolve, DependencyResult};
 use crate::mapper::{map_operator, OperatorKind};
@@ -32,6 +33,8 @@ from airflow.providers.amazon.aws.sensors.step_function import StepFunctionExecu
 {% endif %}
 {% if has_external_sensor %}
 from airflow.sensors.external_task import ExternalTaskSensor
+{% endif %}
+{% if has_external_sensor or has_or_gate %}
 from airflow.utils.trigger_rule import TriggerRule
 {% endif %}
 
@@ -133,6 +136,8 @@ pub struct RenderContext {
     pub app_id: String,
     pub app_code: String,
     pub env: String,
+    /// Maps JOB_NAME_UPPERCASE → folder_name for external DAG ID derivation
+    pub job_folder_map: HashMap<String, String>,
 }
 
 pub fn render(folder: &Folder, ctx: &RenderContext) -> Result<String> {
@@ -150,12 +155,13 @@ pub fn render(folder: &Folder, ctx: &RenderContext) -> Result<String> {
         ctx.env.to_lowercase()
     );
 
-    // Collect operator types used
+    // Collect operator types and gate flags
     let mut has_ssh = false;
     let mut has_psrp = false;
     let mut has_filesensor = false;
     let mut has_step_function = false;
     let mut has_external_sensor = false;
+    let has_or_gate = deps.iter().any(|(_, dep)| dep.has_or_gate);
 
     for (_, dep) in &deps {
         if !dep.external.is_empty() {
@@ -200,6 +206,7 @@ pub fn render(folder: &Folder, ctx: &RenderContext) -> Result<String> {
         has_filesensor => has_filesensor,
         has_step_function => has_step_function,
         has_external_sensor => has_external_sensor,
+        has_or_gate => has_or_gate,
         task_blocks => task_blocks.join("\n"),
         dependency_block => dep_block,
     })?;
@@ -209,10 +216,9 @@ pub fn render(folder: &Folder, ctx: &RenderContext) -> Result<String> {
 
 fn task_var_name(job: &Job, ctx: &RenderContext, period: &str) -> String {
     format!(
-        "{}_{}_{}_task_{}_{}",
+        "{}_{}_task_{}_{}",
         ctx.app_id.to_lowercase().replace('-', "_"),
         ctx.app_code.to_lowercase().replace('-', "_"),
-        "task",
         job.jobname.to_lowercase().replace('-', "_"),
         period
     )
@@ -237,10 +243,14 @@ fn render_task(job: &Job, op: &OperatorKind, ctx: &RenderContext, period: &str) 
         "# control-m configuration\n\
          # JOBNAME: {} | JOBISN: {} | NODEID: {} | RUN_AS: {}\n\
          # APPL_TYPE: {} | APPL_FORM: {}\n\
-         # TIMEFROM: {} | PARENT_FOLDER: {} | APPLICATION: {}",
+         # TIMEFROM: {} | TIMETO: {} | CYCLIC: {} | INTERVAL: {}\n\
+         # DAYSCAL: {} | CONFCAL: {} | CRITICAL: {}\n\
+         # PARENT_FOLDER: {} | APPLICATION: {} | SUB_APPLICATION: {}",
         job.jobname, job.jobisn, job.nodeid, job.run_as,
         job.appl_type, job.appl_form,
-        job.timefrom, job.parent_folder, job.application
+        job.timefrom, job.timeto, job.cyclic, job.interval,
+        job.dayscal, job.confcal, job.critical,
+        job.parent_folder, job.application, job.sub_application
     );
 
     let operator_block = match op {
@@ -248,7 +258,7 @@ fn render_task(job: &Job, op: &OperatorKind, ctx: &RenderContext, period: &str) 
             r#"{var_name} = SSHOperator(
     task_id='{task_id}',
     ssh_conn_id='{conn_id}',
-    command="""{command}""",
+    command=r"""{command}""",
     cmd_timeout=3600,
     dag=dag,
     on_failure_callback=failure_callback if _enable_email_notification_fail else None,
@@ -258,7 +268,7 @@ fn render_task(job: &Job, op: &OperatorKind, ctx: &RenderContext, period: &str) 
             r#"{var_name} = PsrpOperator(
     task_id='{task_id}',
     psrp_conn_id='{conn_id}',
-    command="""{command}""",
+    command=r"""{command}""",
     wsman_options={{"ssl": False}},
     dag=dag,
     on_failure_callback=failure_callback if _enable_email_notification_fail else None,
@@ -342,18 +352,35 @@ fn render_dependencies(
             } else {
                 ""
             };
+            // Derive external DAG ID from job→folder map
+            let external_dag_id = ctx.job_folder_map
+                .get(&ext.job_name.to_uppercase())
+                .map(|f| format!("{}-{}-{}-{}-{}",
+                    ctx.company.to_lowercase(),
+                    ctx.app_id.to_lowercase(),
+                    ctx.app_code.to_lowercase(),
+                    f.to_lowercase(),
+                    ctx.env.to_lowercase()))
+                .unwrap_or_else(|| format!("TODO_external_dag_for_{}", ext.job_name.to_lowercase()));
+
+            let external_task_id = ctx.job_folder_map
+                .get(&ext.job_name.to_uppercase())
+                .map(|_| format!("{}-{}-task_{}-{}",
+                    ctx.app_id.to_lowercase(),
+                    ctx.app_code.to_lowercase(),
+                    ext.job_name.to_lowercase(),
+                    period))
+                .unwrap_or_else(|| format!("TODO_task_id_for_{}", ext.job_name.to_lowercase()));
+
             lines.push(format!(
                 r#"{sensor_var} = ExternalTaskSensor(
     task_id='{sensor_task_id}',
-    external_dag_id='TODO_external_dag_for_{}',  # TODO: find folder owning job {}
-    external_task_id='TODO_task_id_for_{}',{trigger_rule}
+    external_dag_id='{external_dag_id}',
+    external_task_id='{external_task_id}',{trigger_rule}
     mode='reschedule',
     dag=dag,
 )
-{sensor_var} >> {successor_var}"#,
-                ext.job_name.to_lowercase(),
-                ext.job_name,
-                ext.job_name,
+{sensor_var} >> {successor_var}"#
             ));
             jobs_with_deps.insert(job_name.clone());
         }
@@ -365,7 +392,13 @@ fn render_dependencies(
             });
             if let Some(pred) = pred_job {
                 let pred_var = task_var_name(pred, ctx, period);
-                lines.push(format!("{pred_var} >> {successor_var}"));
+                if dep.has_or_gate {
+                    lines.push(format!(
+                        "{successor_var}.set_upstream({pred_var}, trigger_rule=TriggerRule.ONE_SUCCESS)"
+                    ));
+                } else {
+                    lines.push(format!("{pred_var} >> {successor_var}"));
+                }
                 jobs_with_deps.insert(job_name.clone());
                 jobs_with_deps.insert(internal.predecessor.clone());
             }
