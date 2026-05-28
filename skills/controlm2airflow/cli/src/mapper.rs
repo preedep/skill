@@ -32,18 +32,18 @@ fn map_os(job: &Job) -> OperatorKind {
 }
 
 fn map_filewatch(job: &Job) -> OperatorKind {
-    let filepath = get_var(&job.variables, "%%FileWatch-FILE_PATH")
-        .or_else(|| get_var(&job.variables, "%%FileWatch-FILEPATH"))
+    let filepath = get_var(&job.variables, "FileWatch-FILE_PATH")
+        .or_else(|| get_var(&job.variables, "FileWatch-FILEPATH"))
         .unwrap_or_default();
     let filepath = crate::substitution::translate(&filepath)
         .replace('\\', "/");
 
-    let time_limit: u64 = get_var(&job.variables, "%%FileWatch-TIME_LIMIT")
+    let time_limit: u64 = get_var(&job.variables, "FileWatch-TIME_LIMIT")
         .and_then(|v| v.parse().ok())
         .unwrap_or(5)
         * 60; // convert minutes to seconds
 
-    let num_iter: u64 = get_var(&job.variables, "%%FileWatch-NUM_OF_ITERATIONS")
+    let num_iter: u64 = get_var(&job.variables, "FileWatch-NUM_OF_ITERATIONS")
         .and_then(|v| v.parse().ok())
         .unwrap_or(3);
 
@@ -86,12 +86,23 @@ fn map_file_trans(job: &Job) -> OperatorKind {
         let lpath = get_var(&job.variables, "FTP-LPATH1").unwrap_or_default();
         let rhost = get_var(&job.variables, "FTP-RHOST").unwrap_or_default();
         let rpath = get_var(&job.variables, "FTP-RPATH1").unwrap_or_default();
-        let command = format!(
-            "lftp -c 'open {}; lcd {}; mget {}'",
-            rhost,
-            crate::substitution::translate(&lpath),
-            crate::substitution::translate(&rpath)
-        );
+        let upload = get_var(&job.variables, "FTP-UPLOAD1").unwrap_or_default();
+
+        let lpath_t = crate::substitution::translate(&lpath);
+        let rpath_t = crate::substitution::translate(&rpath);
+
+        let command = if upload == "1" {
+            format!(
+                "lftp -c 'open {}; lcd {}; mput {}'",
+                rhost, lpath_t, rpath_t
+            )
+        } else {
+            format!(
+                "lftp -c 'open {}; lcd {}; mget {}'",
+                rhost, lpath_t, rpath_t
+            )
+        };
+
         if lostype.to_uppercase().contains("WIN") {
             OperatorKind::PsrpOperator {
                 conn_id: conn_id_psrp(&job.nodeid),
@@ -148,7 +159,10 @@ fn map_aws(job: &Job) -> OperatorKind {
 
 fn get_var(vars: &[Variable], name: &str) -> Option<String> {
     vars.iter()
-        .find(|v| v.name.eq_ignore_ascii_case(name))
+        .find(|v| {
+            let stored = v.name.trim_start_matches('%');
+            stored.eq_ignore_ascii_case(name) || v.name.eq_ignore_ascii_case(name)
+        })
         .map(|v| v.value.clone())
 }
 

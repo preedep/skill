@@ -9,13 +9,18 @@ pub fn parse(xml: &str) -> Result<Vec<Folder>> {
 
     let mut folders = Vec::new();
 
-    for node in root.children() {
-        if !node.is_element() {
-            continue;
-        }
-        let tag = node.tag_name().name();
-        if matches!(tag, "FOLDER" | "SCHED_TABLE" | "TABLE" | "SMART_FOLDER" | "SMART_TABLE") {
-            folders.push(parse_folder(&node));
+    let root_tag = root.tag_name().name();
+    if matches!(root_tag, "FOLDER" | "SCHED_TABLE" | "TABLE" | "SMART_FOLDER" | "SMART_TABLE") {
+        folders.push(parse_folder(&root));
+    } else {
+        for node in root.children() {
+            if !node.is_element() {
+                continue;
+            }
+            let tag = node.tag_name().name();
+            if matches!(tag, "FOLDER" | "SCHED_TABLE" | "TABLE" | "SMART_FOLDER" | "SMART_TABLE") {
+                folders.push(parse_folder(&node));
+            }
         }
     }
 

@@ -44,11 +44,11 @@ pub fn translate(value: &str) -> String {
     result = result.replace("&gt;", ">");
     result = result.replace("%4E", "\\n");
 
-    // Remaining %% expressions — emit TODO
+    // Remaining %% expressions — keep as literal placeholder (safe inside strings)
     let remaining_re = Regex::new(r"%%\w+").unwrap();
     result = remaining_re
         .replace_all(&result, |caps: &regex::Captures| {
-            format!("{{{{ '{}' }}}}  # TODO: unrecognised Control-M variable", &caps[0])
+            format!("CTRLM_{}", &caps[0].trim_start_matches('%'))
         })
         .to_string();
 
