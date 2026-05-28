@@ -452,10 +452,11 @@ pip install apache-airflow \
 - Left OS = Windows → `PsrpOperator` with PowerShell/batch command
 - `ssh_conn_id` / `psrp_conn_id` derived from `NODEID` (see Connection ID Derivation)
 
+
 ### 3. APPL_TYPE = `FileWatch`
 - Check variables `FileWatch-*`
-- Use `FileSensor` from `airflow.providers.standard.sensors.filesystem`
-- `mode='reschedule'`
+- Check `NODEID` for remote host is Windows or Unix/Linux (refer to Node ID Information)
+- Select `*Sensor` depend on remote host ex. `SFTPFileSensor` from `airflow.providers.standard.sensors.filesystem` or `S3KeySensor` from `airflow.providers.amazon.aws.sensors.s3`
 - `timeout` = `TIME_LIMIT` (in seconds)
 - `poke_interval` = `TIME_LIMIT / NUM_OF_ITERATIONS`
 - `START_TIME` = aligns with DAG schedule
@@ -469,7 +470,7 @@ pip install apache-airflow \
 ```
 arn:aws:states:<region>:<account_id>:stateMachine:<AWS-STEP_NAME>
 ```
-- `region`: default `ap-southeast-1` (Bangkok)
+- `region`: default `ap-southeast-1` (Singapore)
 - `account_id`: use `"ACCOUNT_ID_PLACEHOLDER"` — requires human to fill
 - `execution name`: `AWS-STEP_EXECUTION_NAME + "-{{ ts_nodash }}"` (for uniqueness)
 - `payload`: from `AWS-STEP_PAYLOAD_JSON-N001-VALUE` — unescape HTML entities (`&quot;` → `"`, `%4E` → `\n`)
@@ -561,3 +562,10 @@ For each `INCOND` on a job, apply this decision tree:
    - **YES** → wire as a task dependency: `predecessor_task >> this_task`
    - **NO** → add an `ExternalTaskSensor` pointing to the external DAG that owns that job (`external_dag_id` must be derived from the folder that contains that job)
 3. If `AND_OR="O"` with multiple INCONDs → use `trigger_rule=TriggerRule.ONE_SUCCESS` instead of the default `ALL_SUCCESS`
+
+## Node ID Information
+| Node ID | OS |
+|---------|----------------|
+| `Glory` | `Windows` |
+| `Dunlop` | `Linux` |
+| `Donut` | `Linux` |
