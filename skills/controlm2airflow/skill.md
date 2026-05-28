@@ -7,7 +7,14 @@ This skill converts Control-M jobs (XML) to Apache Airflow DAGs. (DAGs python co
 The input is a Control-M job XML file and an optional config JSON file.
 
 ## Output
-The output is a Python script (DAG codes) but if input provide configuration json file , the output have `##KEY##` placeholders for env-specific values for change each environment not change code if input provide json configuration file **Never hardcode env-specific values directly in the DAG template** 
+
+**Mode A — No config JSON provided (default):**
+Output is a single plain Python DAG file with all values hardcoded. Do NOT generate a config JSON file. Do NOT use `##KEY##` placeholders.
+
+**Mode B — Config JSON file provided as input:**
+Output is a DAG template Python file with `##KEY##` placeholders for every env-specific value, plus the corresponding config JSON file. **Never hardcode env-specific values in the DAG template in this mode.**
+
+> The agent must not generate a config JSON or use `##KEY##` placeholders unless a config JSON file is explicitly provided as input. The Config JSON Schema section below is reference material for Mode B only.
 
 
 | Pattern | Description |Example|
@@ -128,9 +135,10 @@ Translate Control-M date/variable expressions to Airflow Jinja templates:
       - Translate all Control-M `%%` variable expressions using the **Variable Substitution Reference**.
    d. Build task dependencies from Control-M job dependencies (`INCOND`/`OUTCOND`) using the **INCOND Resolution Algorithm** in the Dependency Mapping section.
    e. Add `ExternalTaskSensor` for any dependency referencing a job outside this folder.
-4. Generate the config JSON alongside the DAG template (see **Output Artifacts** and **Config JSON Schema**).
-5. Coding style refer to `Coding Style`
-6. Write the generated DAG template to `output/<dag_filename>.py` and config to `output/config/<env>/<dag_filename>.json`.
+4. Coding style refer to `Coding Style`
+5. Write output files:
+   - **Mode A (no config JSON input):** write plain DAG to `output/<dag_filename>.py` only.
+   - **Mode B (config JSON input provided):** write DAG template with `##KEY##` placeholders to `output/dags/<dag_filename>.py` AND config JSON to `output/config/<env>/<dag_filename>.json`.
 7. Check syntax of any shell script or PowerShell embedded in `SSHOperator` or `PsrpOperator` — ensure backslashes are escaped and string delimiters are valid Python.
 8. Verify the generated DAG by running `python <output_file>.py` inside the `.venv` (see Setup):
    - If it exits with code 0 → proceed to step 9.
