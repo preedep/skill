@@ -500,7 +500,13 @@ Extract `FTP-*` variables from the Control-M job XML. For each active transfer s
 
 3. **Build the transfer command** (see templates below)
 
-4. **Wrap with pre/post commands** (if `FTP-PRECOMM{N}` / `FTP-POSTCOMM{N}` exist)
+4. **Wrap with pre/post commands** (if `FTP-PRECOMM{N}` / `FTP-POSTCOMM{N}` exist):
+   - Check if `%%FTP-PRECOMM{N}` variable exists (e.g., `%%FTP-PRECOMM21` for transfer 1, destination host)
+   - If exists, **prepend the command before the transfer** with its parameters from `%%FTP-PREPARAM{N}{Y}`
+   - Example: `%%FTP-PRECOMM21="mkdir"` + `%%FTP-PREPARAM211="/path/to/dir"` → add `mkdir /path/to/dir` before lftp
+   - Same logic for post-transfer commands (`%%FTP-POSTCOMM{N}` / `%%FTP-POSTPARAM{N}`)
+   - Pre/post commands run on respective hosts (1=source, 2=destination)
+   - **Critical:** Always include pre-commands in the script flow; do NOT skip them
 
 5. **Handle multiple transfers:** Build a bash/PowerShell loop if `FTP-TRANSFER_NUM > 1`
 
