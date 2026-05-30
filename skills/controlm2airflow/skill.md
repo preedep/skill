@@ -241,7 +241,11 @@ _dag_name = "##DAG_NAME##"
 7. Dependencies
 
 ### Key rules
-- **Imports:** only import operators/sensors that are actually used in the DAG. `EmptyOperator` must be imported from `airflow.providers.standard.operators.empty` (Airflow 3.x) — never from `airflow.operators.empty` (deprecated). Do not import `EmptyOperator` unless a task uses it.
+- **Imports:** only import operators/sensors that are actually used in the DAG. 
+  - `EmptyOperator` → `from airflow.providers.standard.operators.empty import EmptyOperator` (Airflow 3.x) — never from `airflow.operators.empty` (deprecated)
+  - `TriggerRule` → `from airflow.models.trigger_rule import TriggerRule` (Airflow 3.x) — **ONLY if** `AND_OR="O"` appears in any INCOND definition. Check all INCOND tags first; if none have `AND_OR="O"`, do NOT import. Never import from `airflow.utils.trigger_rule` (deprecated).
+  - `send_email` → `from airflow.utils.email import send_email` — **ONLY if** callbacks are enabled (`_enable_email_notification_success` or `_enable_email_notification_fail` = True)
+  - Do not import operators/sensors unless a task uses them. Avoid importing unused symbols.
 - **All inputs lowercased:** `company`, `app_id`, `app_code`, `folder_name`, `env`, all tag values, task IDs, Python variable names, and the DAG ID components must always be `.lower()` — regardless of how they are provided as input. Even if the user passes `APP_ID=APP1234`, store and emit it as `app1234`.
 - **Task Python variable name:** `<app_id>_<app_code>_task_<job_name>_<period>` — all lowercase, `-` replaced with `_` (e.g. `app1234_testapp_task_rt_rb2cm005_d`). The `task_id` string uses `-` per the Naming convention table.
 - `default_args` must include: `owner`, `depends_on_past`, `start_date`, `timezone`, `retries=3`, `retry_delay`, `retry_exponential_backoff`, `max_retry_delay`, `email_on_failure=False`, `email_on_retry=False`
