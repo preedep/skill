@@ -24,5 +24,16 @@ output/*.*
 input/*.*
 test_run.sh
 skills/*/templates/
+skills/*/research/
 .venv/
 logs/
+.DS_Store
+**/.DS_Store
+Cargo.toml
+Cargo.lock
+src/
+*.py
+
+# Added by cargo
+
+/target
