@@ -1,7 +1,7 @@
 Skill: Convert Control-M jobs to Apache Airflow DAGs
 
 ## Purpose
-This skill converts Control-M jobs (XML) to Apache Airflow DAGs. (DAGs python code)
+This skill converts Control-M jobs (XML) to Apache Airflow (version 3.x) DAGs. (DAGs python code)
 
 ## Input
 The input is a Control-M job XML file and an optional config JSON file.
@@ -210,7 +210,7 @@ Translate Control-M date/variable expressions to Airflow Jinja templates:
 
 ## Coding style
 
-Follow the company DAG templates — see [`templates/`](templates/) for full working examples.
+Follow the company DAG (focus on Airflow 3.x) templates — see [`templates/`](templates/) for full working examples.
 
 ### File structure order
 1. Imports (`pendulum`, `send_email`, `logging`)
@@ -334,7 +334,7 @@ Log: start, logical date, source/destination, completion, failure reason.
 #### Output Requirements
 
 * Produce complete runnable scripts.
-* All DAG files must be complete profesional comments (incl. header (before imports area) , task , dependencies)
+* All DAG files must be complete **profesional comments  (incl. header (before imports area) , task , dependencies)**
 * Do not generate pseudocode — every `lftp`, `aws`, or command block must be fully written out with all options; never use `...` as a placeholder.
 * Do not omit required variables.
 * Keep scripts enterprise-readable and maintainable.
