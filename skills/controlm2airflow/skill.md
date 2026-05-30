@@ -760,6 +760,56 @@ Write-Host "[INFO] File found: $FilePath"
 )
 ```
 
+##### Concrete Example: Windows FileWatch with PsrpOperator
+
+Given:
+- NODEID = `Glory` (Windows, from Node ID Information table)
+- FILE_PATH = `S:\EDW\PROD\LOADS\DATA\BI_OPG_PMS\BI_EDW_EXT_OPG_PMS_ACCOUNT_D%%$ODATE..CTL`
+- TIME_LIMIT = 5 minutes (300 seconds)
+- INT_FILE_SEARCHES = 60 seconds
+
+**Generated PsrpOperator task:**
+
+```python
+# Control-M job: BI_D_WATCHER_004 | NODEID: Glory | RUN_AS: edwusr01
+# FILE_PATH: S:\EDW\PROD\LOADS\DATA\BI_OPG_PMS\BI_EDW_EXT_OPG_PMS_ACCOUNT_D{{ ds_nodash }}..CTL
+# TIME_LIMIT: 5 minutes (300 seconds) | INT_FILE_SEARCHES: 60 seconds
+app1234_testapp_task_bi_d_watcher_004_d = PsrpOperator(
+    task_id='app1234-testapp-task_bi_d_watcher_004-d',
+    psrp_conn_id='psrp_glory',  # NODEID=Glory → psrp_glory
+    # RUN_AS: edwusr01
+    powershell=r"""
+$ErrorActionPreference = 'Stop'
+$FilePath = "S:\EDW\PROD\LOADS\DATA\BI_OPG_PMS\BI_EDW_EXT_OPG_PMS_ACCOUNT_D{{ ds_nodash }}..CTL"
+$TimeoutSec = 300  # 5 minutes
+$PollSec = 60  # INT_FILE_SEARCHES
+$Elapsed = 0
+Write-Host "[INFO] Waiting for file: $FilePath"
+while (-not (Test-Path $FilePath)) {
+    if ($Elapsed -ge $TimeoutSec) {
+        Write-Host "[ERROR] File not found after ${TimeoutSec}s: $FilePath"
+        exit 1
+    }
+    Write-Host "[INFO] File not yet present. Elapsed: ${Elapsed}s / ${TimeoutSec}s"
+    Start-Sleep -Seconds $PollSec
+    $Elapsed += $PollSec
+}
+Write-Host "[INFO] File found: $FilePath"
+""",
+    wsman_options={"ssl": False},
+    on_failure_callback=failure_callback,
+)
+```
+
+**Key implementation points:**
+- ✅ NODEID=Glory (Windows) → **Use `PsrpOperator` NOT `FileSensor`**
+- ✅ FILE_PATH starts with `S:\` (Windows drive) → Remote Windows file requires operator
+- ✅ `psrp_conn_id='psrp_glory'` derived from NODEID.lower()
+- ✅ `%%$ODATE` replaced with `{{ ds_nodash }}`
+- ✅ `TIME_LIMIT=5` (minutes) → 300 seconds
+- ✅ `INT_FILE_SEARCHES=60` (seconds) → $PollSec
+- ✅ PowerShell with `$ErrorActionPreference = 'Stop'` for error handling
+
 ### 4. APPL_TYPE = `AWS`
 - Check variables `AWS-*`
 - If `SERVICE_TYPE=STEP` → use `StepFunctionStartExecutionOperator` + `StepFunctionExecutionSensor`
