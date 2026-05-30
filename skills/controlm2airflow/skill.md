@@ -163,7 +163,19 @@ Translate Control-M date/variable expressions to Airflow Jinja templates:
    - **Mode A:** Write plain DAG to `output/<dag_filename>.py`
    - **Mode B:** Write DAG template to `output/dags/<dag_filename>.py` with `##KEY##` placeholders AND config JSON to `output/config/<env>/<dag_filename>.json`
 
-7. **Verify:** Run `python <output_file>.py` inside `.venv` (see Setup):
+7. **Verify:** Run `python <output_file>.py` inside `.venv` (see Setup) to validate:
+   - Python syntax (indentation, brackets, quotes)
+   - All imports resolve correctly (airflow, providers, pendulum)
+   - DAG instantiation succeeds (`dag = DAG(...)`)
+   - No deprecated operators or syntax
+   - Callback functions are valid
+   - Raw strings (`r"""..."""`) for bash/PowerShell scripts are properly closed
+   
+   **Validation steps:**
+   ```bash
+   python <output_file>.py       # Check syntax and DAG instantiation
+   echo $?                       # Exit code 0 = pass, ≠ 0 = fail
+   ```
    - Exit code 0 → success; proceed to step 8
    - Exit code ≠ 0 → fix error, re-verify, repeat until clean
    - **Hard gate:** Do not deliver until verification passes
