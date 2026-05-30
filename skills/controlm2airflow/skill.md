@@ -695,18 +695,28 @@ FileWatch monitors filesystem for file events (creation, deletion, modification)
   - `FileWatch-START_TIME` / `FileWatch-STOP_TIME` — time window constraints
   - `FileWatch-FILESIZE_WILDCARD` — enable size checks with wildcards (Y/N)
 
-- Check `NODEID` to determine remote host OS (refer to `Node ID Information` table)
-- Select sensor/operator based on NODEID OS and file location:
+- Check `NODEID` against `Node ID Information` table to determine agent OS
+- **Determine file location from `FileWatch-FILE_PATH`:**
+  - Path starts with drive letter (`S:\`, `D:\`, `C:\`) → remote Windows file
+  - Path starts with `/` → remote Unix/Linux file or local Unix
+  - Relative path or local → Airflow worker local filesystem
 
-| NODEID OS | File Location | Approach | Sensor/Operator | Provider |
-|-----------|---------------|----------|-----------------|----------|
-| Airflow worker local | Local filesystem | `FileSensor` with glob patterns | `FileSensor` | `apache-airflow-providers-standard` |
-| Unix/Linux (Dunlop, Donut) | Remote Unix/SFTP | `SFTPSensor` with timeout + poke_interval | `SFTPSensor` | `apache-airflow-providers-sftp` |
-| Unix/Linux | Remote FTPS | Custom `SSHOperator` with `lftp ls` polling; emit TODO | Custom sensor | — |
-| Windows (Glory) | Windows SMB/mapped drive | Custom `PsrpOperator` polling script; emit TODO | `PsrpOperator` | — |
-| AWS S3 | S3 bucket | `S3KeySensor` with prefix/wildcard | `S3KeySensor` | `apache-airflow-providers-amazon` |
+- Select sensor/operator based on **FILE_PATH location + NODEID OS combination:**
 
-> **Critical:** `FileSensor` **only works for files on the Airflow worker's own local filesystem.** Never use `FileSensor` for a path on a remote Windows server (e.g. `S:\`, `D:\`) or remote Unix host — the worker cannot see those paths. Use `PsrpOperator` for Windows and `SSHOperator` for Unix remotes.
+| FILE_PATH Pattern | NODEID OS (from table) | File Location | Operator/Sensor | Notes |
+|-------------------|----------------------|---------------|-----------------|-------|
+| Relative or local | Any | Airflow worker local | `FileSensor` | Works only for local files on worker |
+| `S:\`, `D:\`, `C:\` (Windows drive) | Windows (from table) | Remote Windows SMB | `PsrpOperator` | PowerShell polling script required |
+| `/path/` (Unix path) | Unix/Linux (from table) | Remote Unix SFTP | `SFTPSensor` | Native SFTP sensor support |
+| `/path/` (Unix path) | Unix/Linux (from table) | Remote Unix FTPS | `SSHOperator` custom | Custom `lftp ls` polling (emit TODO) |
+| AWS S3 path | Any | S3 bucket | `S3KeySensor` | AWS provider required |
+
+> **Critical Rule — FileSensor Restriction:**
+> `FileSensor` **only works for files on the Airflow worker's own local filesystem.** Never use `FileSensor` for:
+> - Remote Windows paths (`S:\`, `D:\`, etc.) on Windows NODEID — use `PsrpOperator`
+> - Remote Unix paths (`/data/...`) on Unix NODEID — use `SFTPSensor` or `SSHOperator`
+> 
+> **The Airflow worker cannot directly access remote filesystems without an operator.**
 
 - All sensors: use `mode='reschedule'` (deferrable preferred if provider supports it, then reschedule, then poke)
 - Parameter mapping:
@@ -715,9 +725,9 @@ FileWatch monitors filesystem for file events (creation, deletion, modification)
   - Stability window = `FileWatch-NUM_OF_ITERATIONS` × `FileWatch-INT_FILESIZE_COMPARISON`
   - `START_TIME` = align DAG `schedule` with this time window (if specified)
 
-#### Windows FileWatch — PsrpOperator polling placeholder
+#### Remote Windows FileWatch — PsrpOperator polling placeholder
 
-When NODEID is Windows, generate a `PsrpOperator` task that polls for the file and exits 0 when found:
+When NODEID maps to Windows OS (refer to `Node ID Information` table) and FILE_PATH is a Windows drive path (`S:\`, `D:\`, etc.), generate a `PsrpOperator` task that polls for the file and exits 0 when found:
 
 ```python
 # TODO: implement Windows remote file watch
