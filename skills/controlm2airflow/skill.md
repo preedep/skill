@@ -501,12 +501,42 @@ Extract `FTP-*` variables from the Control-M job XML. For each active transfer s
 3. **Build the transfer command** (see templates below)
 
 4. **Wrap with pre/post commands** (if `FTP-PRECOMM{N}` / `FTP-POSTCOMM{N}` exist):
-   - Check if `%%FTP-PRECOMM{N}` variable exists (e.g., `%%FTP-PRECOMM21` for transfer 1, destination host)
-   - If exists, **prepend the command before the transfer** with its parameters from `%%FTP-PREPARAM{N}{Y}`
-   - Example: `%%FTP-PRECOMM21="mkdir"` + `%%FTP-PREPARAM211="/path/to/dir"` → add `mkdir /path/to/dir` before lftp
-   - Same logic for post-transfer commands (`%%FTP-POSTCOMM{N}` / `%%FTP-POSTPARAM{N}`)
-   - Pre/post commands run on respective hosts (1=source, 2=destination)
-   - **Critical:** Always include pre-commands in the script flow; do NOT skip them
+   
+   **Extraction Algorithm:**
+   1. For each transfer N (1, 2, ...):
+      - Check if `%%FTP-PRECOMM{HOST}{N}` exists (HOST=1 for source, 2 for destination)
+      - For Windows source (LOSTYPE=Windows), extract `%%FTP-PRECOMM2{N}` (runs on destination before lftp)
+      - For Unix source (LOSTYPE=Unix), extract `%%FTP-PRECOMM1{N}` (runs on source before lftp)
+   2. Look up command parameters in `%%FTP-PREPARAM{HOST}{N}{Y}` (Y = parameter index: 1=first param, 2=second, etc.)
+   3. Substitute Control-M variables in parameters: `%%$ODATE` → `{{ ds_nodash }}`, `%%PREV` → previous date logic
+   4. **Prepend** pre-command script **before** the lftp/aws/azcopy command
+   5. Same logic for post-commands: extract `%%FTP-POSTCOMM{N}` / `%%FTP-POSTPARAM{N}{Y}` and **append after** transfer
+   
+   **Concrete Example (mockup):**
+   ```
+   XML has:  %%FTP-PRECOMM21="mkdir"
+             %%FTP-PREPARAM211="/mnt/data/output/%%$ODATE./folder"
+   
+   Extract:  Transfer 1, destination host (2), pre-command=mkdir, param1=/path/with/%%$ODATE
+   Substitute: %%$ODATE → {{ ds_nodash }}
+   Generate PowerShell:
+   
+   # Pre-command: mkdir (create destination directory)
+   $Output = & lftp -u "$RUser","$RPass" \
+       -e "mkdir /mnt/data/output/{{ ds_nodash }}/folder; quit" \
+       "ftps://$RHost" 2>&1
+   if ($LASTEXITCODE -ne 0) {
+       Write-Host "[ERROR] mkdir failed: $Output"; exit 1
+   }
+   
+   # Transfer 1: Upload
+   $Output = & lftp -u "$RUser","$RPass" \
+       -e "set ftp:ssl-allow yes; cd /mnt/data/output/{{ ds_nodash }}/folder; \
+           put \"$LPath1\"; quit" \
+       "ftps://$RHost" 2>&1
+   ```
+   
+   **Critical:** Always include pre-commands and post-commands in the script flow; do NOT skip them even if they seem simple (mkdir, rm, etc.)
 
 5. **Handle multiple transfers:** Build a bash/PowerShell loop if `FTP-TRANSFER_NUM > 1`
 
@@ -767,27 +797,27 @@ Write-Host "[INFO] File found: $FilePath"
 )
 ```
 
-##### Concrete Example: Windows FileWatch with PsrpOperator
+##### Concrete Example: Windows FileWatch with PsrpOperator (mockup)
 
 Given:
-- NODEID = `Glory` (Windows, from Node ID Information table)
-- FILE_PATH = `S:\EDW\PROD\LOADS\DATA\BI_OPG_PMS\BI_EDW_EXT_OPG_PMS_ACCOUNT_D%%$ODATE..CTL`
+- NODEID = `serverwin1` (Windows, from Node ID Information table)
+- FILE_PATH = `S:\data\processed\report_%%$ODATE..txt`
 - TIME_LIMIT = 5 minutes (300 seconds)
 - INT_FILE_SEARCHES = 60 seconds
 
 **Generated PsrpOperator task:**
 
 ```python
-# Control-M job: BI_D_WATCHER_004 | NODEID: Glory | RUN_AS: edwusr01
-# FILE_PATH: S:\EDW\PROD\LOADS\DATA\BI_OPG_PMS\BI_EDW_EXT_OPG_PMS_ACCOUNT_D{{ ds_nodash }}..CTL
+# Control-M job: MONITOR_DATA_001 | NODEID: serverwin1 | RUN_AS: datauser
+# FILE_PATH: S:\data\processed\report_{{ ds_nodash }}..txt
 # TIME_LIMIT: 5 minutes (300 seconds) | INT_FILE_SEARCHES: 60 seconds
-app1234_testapp_task_bi_d_watcher_004_d = PsrpOperator(
-    task_id='app1234-testapp-task_bi_d_watcher_004-d',
-    psrp_conn_id='psrp_glory',  # NODEID=Glory → psrp_glory
-    # RUN_AS: edwusr01
+app1234_testapp_task_monitor_data_001_d = PsrpOperator(
+    task_id='app1234-testapp-task_monitor_data_001-d',
+    psrp_conn_id='psrp_serverwin1',  # NODEID=serverwin1 → psrp_serverwin1
+    # RUN_AS: datauser
     powershell=r"""
 $ErrorActionPreference = 'Stop'
-$FilePath = "S:\EDW\PROD\LOADS\DATA\BI_OPG_PMS\BI_EDW_EXT_OPG_PMS_ACCOUNT_D{{ ds_nodash }}..CTL"
+$FilePath = "S:\data\processed\report_{{ ds_nodash }}..txt"
 $TimeoutSec = 300  # 5 minutes
 $PollSec = 60  # INT_FILE_SEARCHES
 $Elapsed = 0
@@ -809,9 +839,9 @@ Write-Host "[INFO] File found: $FilePath"
 ```
 
 **Key implementation points:**
-- ✅ NODEID=Glory (Windows) → **Use `PsrpOperator` NOT `FileSensor`**
-- ✅ FILE_PATH starts with `S:\` (Windows drive) → Remote Windows file requires operator
-- ✅ `psrp_conn_id='psrp_glory'` derived from NODEID.lower()
+- ✅ NODEID=serverwin1 (Windows) → **Use `PsrpOperator` NOT `FileSensor`**
+- ✅ FILE_PATH starts with `S:\` (Windows drive) → Remote Windows file requires PsrpOperator
+- ✅ `psrp_conn_id='psrp_serverwin1'` derived from NODEID.lower()
 - ✅ `%%$ODATE` replaced with `{{ ds_nodash }}`
 - ✅ `TIME_LIMIT=5` (minutes) → 300 seconds
 - ✅ `INT_FILE_SEARCHES=60` (seconds) → $PollSec
