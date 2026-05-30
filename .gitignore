@@ -23,6 +23,7 @@ target
 output/
 input/
 test_run.sh
+test_run_all.sh
 skills/*/templates/
 skills/*/research/
 .venv/

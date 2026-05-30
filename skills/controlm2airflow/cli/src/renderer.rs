@@ -7,7 +7,11 @@ use crate::mapper::{map_operator, OperatorKind};
 use crate::model::{Folder, Job};
 use crate::scheduler::{derive_execution_period, derive_schedule};
 
-const DAG_TEMPLATE: &str = r#"from airflow import DAG
+const DAG_TEMPLATE: &str = r#"# Apache Airflow DAG: {{ company }}-{{ app_id }}-{{ app_code }}-{{ folder_name_lower }}-{{ env }}
+# Converted from Control-M folder: {{ folder_name_upper }}
+# Converted by Control-M 2 Airflow Skill
+
+from airflow import DAG
 
 from datetime import datetime, timedelta
 import logging
@@ -107,7 +111,7 @@ default_args = {
     'email_on_retry': False,
 }
 
-dag = DAG(
+with DAG(
     _company + '-' + _project + '-' + _app_code + '-' + _dag_name + '-' + _env,
     default_args=default_args,
     schedule=_schedule,
@@ -117,16 +121,16 @@ dag = DAG(
     start_date=datetime(2025, 1, 1, tzinfo=local_tz),
     on_success_callback=success_callback if _enable_email_notification_success else None,
     on_failure_callback=failure_callback if _enable_email_notification_fail else None,
-)
+) as dag:
 
-###################### Tasks ######################
+    ###################### Tasks ######################
 
-start = EmptyOperator(task_id='start', dag=dag)
-end = EmptyOperator(task_id='end', dag=dag)
+    start = EmptyOperator(task_id='start')
+    end = EmptyOperator(task_id='end')
 
 {{ task_blocks }}
 
-###################### Task Dependencies ######################
+    ###################### Task Dependencies ######################
 
 {{ dependency_block }}
 "#;
@@ -136,7 +140,7 @@ pub struct RenderContext {
     pub app_id: String,
     pub app_code: String,
     pub env: String,
-    /// Maps JOB_NAME_UPPERCASE → folder_name for external DAG ID derivation
+    /// Maps JOB_NAME_UPPERCASE -> folder_name for external DAG ID derivation
     pub job_folder_map: HashMap<String, String>,
 }
 
@@ -199,6 +203,7 @@ pub fn render(folder: &Folder, ctx: &RenderContext) -> Result<String> {
         app_code => ctx.app_code,
         env => ctx.env.to_lowercase(),
         folder_name_lower => folder_lower,
+        folder_name_upper => folder.folder_name.clone(),
         schedule => schedule,
         tags => tags,
         has_ssh => has_ssh,
@@ -240,82 +245,81 @@ fn render_task(job: &Job, op: &OperatorKind, ctx: &RenderContext, period: &str) 
     let task_id = task_id_str(job, ctx, period);
 
     let ctrlm_comment = format!(
-        "# control-m configuration\n\
-         # JOBNAME: {} | JOBISN: {} | NODEID: {} | RUN_AS: {}\n\
-         # APPL_TYPE: {} | APPL_FORM: {}\n\
-         # TIMEFROM: {} | TIMETO: {} | CYCLIC: {} | INTERVAL: {}\n\
-         # DAYSCAL: {} | CONFCAL: {} | CRITICAL: {}\n\
+        "    # Control-M job: {}\n\
+         # INCOND: {} | OUTCOND: {}\n\
+         # RUN_AS: {}\n\
+         # JOBNAME: {} | JOBISN: {} | NODEID: {} | APPL_TYPE: {} | APPL_FORM: {}\n\
+         # TIMEFROM: {} | CYCLIC: {} | INTERVAL: {} | DAYSCAL: {} | CRITICAL: {}\n\
          # PARENT_FOLDER: {} | APPLICATION: {} | SUB_APPLICATION: {}",
-        job.jobname, job.jobisn, job.nodeid, job.run_as,
-        job.appl_type, job.appl_form,
-        job.timefrom, job.timeto, job.cyclic, job.interval,
-        job.dayscal, job.confcal, job.critical,
+        job.jobname,
+        job.inconds.iter().map(|c| c.name.as_str()).collect::<Vec<_>>().join(", "),
+        job.outconds.iter().map(|c| c.name.as_str()).collect::<Vec<_>>().join(", "),
+        job.run_as,
+        job.jobname, job.jobisn, job.nodeid, job.appl_type, job.appl_form,
+        job.timefrom, job.cyclic, job.interval,
+        job.dayscal, job.critical,
         job.parent_folder, job.application, job.sub_application
     );
 
     let operator_block = match op {
         OperatorKind::SshOperator { conn_id, command } => format!(
-            r#"{var_name} = SSHOperator(
-    task_id='{task_id}',
-    ssh_conn_id='{conn_id}',
-    command=r"""{command}""",
-    cmd_timeout=3600,
-    dag=dag,
-    on_failure_callback=failure_callback if _enable_email_notification_fail else None,
-)"#
+            r#"    {var_name} = SSHOperator(
+        task_id='{task_id}',
+        ssh_conn_id='{conn_id}',
+        command=r"""{command}""",
+        cmd_timeout=3600,
+        on_failure_callback=failure_callback if _enable_email_notification_fail else None,
+    )"#
         ),
         OperatorKind::PsrpOperator { conn_id, command } => format!(
-            r#"{var_name} = PsrpOperator(
-    task_id='{task_id}',
-    psrp_conn_id='{conn_id}',
-    command=r"""{command}""",
-    wsman_options={{"ssl": False}},
-    dag=dag,
-    on_failure_callback=failure_callback if _enable_email_notification_fail else None,
-)"#
+            r#"    {var_name} = PsrpOperator(
+        task_id='{task_id}',
+        psrp_conn_id='{conn_id}',
+        # RUN_AS: {run_as}
+        powershell=r"""{command}""",
+        wsman_options={{"ssl": False}},
+        on_failure_callback=failure_callback if _enable_email_notification_fail else None,
+    )"#,
+            run_as = job.run_as,
         ),
         OperatorKind::FileSensor { filepath, timeout, poke_interval } => format!(
-            r#"{var_name} = FileSensor(
-    task_id='{task_id}',
-    filepath='{filepath}',
-    mode='reschedule',
-    poke_interval={poke_interval},
-    timeout={timeout},
-    dag=dag,
-    on_failure_callback=failure_callback if _enable_email_notification_fail else None,
-)"#
+            r#"    {var_name} = FileSensor(
+        task_id='{task_id}',
+        filepath='{filepath}',
+        mode='reschedule',
+        poke_interval={poke_interval},
+        timeout={timeout},
+        on_failure_callback=failure_callback if _enable_email_notification_fail else None,
+    )"#
         ),
         OperatorKind::StepFunction { aws_conn_id, state_machine_arn, execution_name, payload } => {
             let wait_var = format!("{}_wait", var_name);
             let wait_task_id = format!("{}-wait", task_id);
             format!(
-                r#"{var_name} = StepFunctionStartExecutionOperator(
-    task_id='{task_id}',
-    aws_conn_id='{aws_conn_id}',
-    state_machine_arn='{state_machine_arn}',  # TODO: replace ACCOUNT_ID_PLACEHOLDER
-    name='{execution_name}',
-    input=json.dumps({payload}),
-    dag=dag,
-    on_failure_callback=failure_callback if _enable_email_notification_fail else None,
-)
-{wait_var} = StepFunctionExecutionSensor(
-    task_id='{wait_task_id}',
-    aws_conn_id='{aws_conn_id}',
-    execution_arn="{{{{ ti.xcom_pull(task_ids='{task_id}') }}}}",
-    poke_interval=30,
-    timeout=3600,
-    mode='reschedule',
-    dag=dag,
-    on_failure_callback=failure_callback if _enable_email_notification_fail else None,
-)"#
+                r#"    {var_name} = StepFunctionStartExecutionOperator(
+        task_id='{task_id}',
+        aws_conn_id='{aws_conn_id}',
+        state_machine_arn='{state_machine_arn}',  # TODO: replace ACCOUNT_ID_PLACEHOLDER
+        name='{execution_name}',
+        input=json.dumps({payload}),
+        on_failure_callback=failure_callback if _enable_email_notification_fail else None,
+    )
+    {wait_var} = StepFunctionExecutionSensor(
+        task_id='{wait_task_id}',
+        aws_conn_id='{aws_conn_id}',
+        execution_arn="{{{{ ti.xcom_pull(task_ids='{task_id}') }}}}",
+        poke_interval=30,
+        timeout=3600,
+        mode='reschedule',
+        on_failure_callback=failure_callback if _enable_email_notification_fail else None,
+    )"#
             )
         }
         OperatorKind::Todo { reason } => format!(
-            r#"# TODO: {reason}
-{var_name} = EmptyOperator(
-    task_id='{task_id}',
-    dag=dag,
-)"#
+            r#"    # TODO: {reason}
+    {var_name} = EmptyOperator(
+        task_id='{task_id}',
+    )"#
         ),
     };
 
@@ -348,11 +352,10 @@ fn render_dependencies(
                 period
             );
             let trigger_rule = if dep.has_or_gate {
-                "\n    trigger_rule=TriggerRule.ONE_SUCCESS,"
+                "\n        trigger_rule=TriggerRule.ONE_SUCCESS,"
             } else {
                 ""
             };
-            // Derive external DAG ID from job→folder map
             let external_dag_id = ctx.job_folder_map
                 .get(&ext.job_name.to_uppercase())
                 .map(|f| format!("{}-{}-{}-{}-{}",
@@ -373,14 +376,13 @@ fn render_dependencies(
                 .unwrap_or_else(|| format!("TODO_task_id_for_{}", ext.job_name.to_lowercase()));
 
             lines.push(format!(
-                r#"{sensor_var} = ExternalTaskSensor(
-    task_id='{sensor_task_id}',
-    external_dag_id='{external_dag_id}',
-    external_task_id='{external_task_id}',{trigger_rule}
-    mode='reschedule',
-    dag=dag,
-)
-{sensor_var} >> {successor_var}"#
+                r#"    {sensor_var} = ExternalTaskSensor(
+        task_id='{sensor_task_id}',
+        external_dag_id='{external_dag_id}',
+        external_task_id='{external_task_id}',{trigger_rule}
+        mode='reschedule',
+    )
+    {sensor_var} >> {successor_var}"#
             ));
             jobs_with_deps.insert(job_name.clone());
         }
@@ -394,10 +396,10 @@ fn render_dependencies(
                 let pred_var = task_var_name(pred, ctx, period);
                 if dep.has_or_gate {
                     lines.push(format!(
-                        "{successor_var}.set_upstream({pred_var}, trigger_rule=TriggerRule.ONE_SUCCESS)"
+                        "    {successor_var}.set_upstream({pred_var}, trigger_rule=TriggerRule.ONE_SUCCESS)"
                     ));
                 } else {
-                    lines.push(format!("{pred_var} >> {successor_var}"));
+                    lines.push(format!("    {pred_var} >> {successor_var}"));
                 }
                 jobs_with_deps.insert(job_name.clone());
                 jobs_with_deps.insert(internal.predecessor.clone());
@@ -421,18 +423,18 @@ fn render_dependencies(
 
     if !independent.is_empty() {
         lines.push(format!(
-            "start >> [{}] >> end",
+            "    start >> [{}] >> end",
             independent.join(", ")
         ));
     } else if !all_tasks.is_empty() {
         lines.push(format!(
-            "start >> [{}] >> end",
+            "    start >> [{}] >> end",
             all_tasks.join(", ")
         ));
     }
 
     if lines.is_empty() {
-        "start >> end".to_string()
+        "    start >> end".to_string()
     } else {
         lines.join("\n")
     }
