@@ -119,32 +119,56 @@ Translate Control-M date/variable expressions to Airflow Jinja templates:
 
 
 ## Behavior
-1. Parse the input XML and extract all Control-M folder and job metadata.
-2. Group jobs by folder — each folder produces one DAG file + one config JSON.
-3. For each folder:
-   a. Derive DAG file name and DAG ID from `<company>-<app_id>-<app_code>-<folder_name>-<env>` (lowercased).
-   b. Map the folder's schedule to an Airflow `schedule` parameter using the **Schedule Mapping** rules below; default timezone is "Asia/Bangkok".
-   c. For each job in the folder, create one Airflow task:
-      - Derive task ID from `<app_id>-<app_code>-task_<job_name>-<period>` (lowercased).
-      - Derive `<period>` using the execution_period derivation rule (see Output section).
-      - Select the operator based on job type (see Constraints).
-      - Match job type (Appl_Type) with pattern `Control-M Appl_Type Mapping - Airflow Pattern Reference`
-      - Apply SLA if defined on the job which is converted to `DeadlineAlert` (new standard in airflow 3.x).
-      - Wire `on_failure_callback` to the standard alert hook.
-      - Write comments 'control-m configuration and conditions INCOND/OUTCOND' of the control-mjob to the task location and task dependencies.
-      - Translate all Control-M `%%` variable expressions using the **Variable Substitution Reference**.
-   d. Build task dependencies from Control-M job dependencies (`INCOND`/`OUTCOND`) using the **INCOND Resolution Algorithm** in the Dependency Mapping section.
-   e. Add `ExternalTaskSensor` for any dependency referencing a job outside this folder.
-4. Coding style refer to `Coding Style`
-5. Write output files:
-   - **Mode A (no config JSON input):** write plain DAG to `output/<dag_filename>.py` only.
-   - **Mode B (config JSON input provided):** write DAG template with `##KEY##` placeholders to `output/dags/<dag_filename>.py` AND config JSON to `output/config/<env>/<dag_filename>.json`.
-7. Check syntax of any shell script or PowerShell embedded in `SSHOperator` or `PsrpOperator` — ensure backslashes are escaped and string delimiters are valid Python.
-8. Verify the generated DAG by running `python <output_file>.py` inside the `.venv` (see Setup):
-   - If it exits with code 0 → proceed to step 9.
-   - If it fails → fix the error, re-run verification, repeat until clean.
-   - **Do not deliver the file until `python <output_file>.py` exits with code 0. This step is a hard gate.**
-9. For any unsupported job type, emit a `# TODO:` comment at the task location and log a warning.
+
+1. **Parse and group:** Extract all Control-M folder and job metadata from input XML. Group jobs by folder — each folder produces one DAG file + one config JSON (Mode B only).
+
+2. **Configure DAG:** For each folder:
+   - Derive DAG file name and DAG ID from `<company>-<app_id>-<app_code>-<folder_name>-<env>` (lowercased)
+   - Map folder schedule to Airflow `schedule` parameter using **Schedule Mapping** rules (default timezone: `Asia/Bangkok`)
+   - Add DAG-level header comment documenting the Control-M source:
+     ```python
+     # Apache Airflow DAG: <dag_id>
+     # Converted from Control-M folder: <folder_name>
+     # Converted from Control-M job: <job_name> (use command if more than one job in folder)
+     # Converted by Control-M 2 Airflow Skill
+     ```
+   - Add Task-level comment which use job configuration from Control-M job definition
+   - Add Dependency comment which use job configuration from in/out condition Control-M job definition
+
+3. **Build tasks:** For each job in the folder:
+   - Derive task ID: `<app_id>-<app_code>-task_<job_name>-<period>` (lowercased)
+   - Derive `<period>` from folder suffix (`_DAILY`→`d`, `_WEEKLY`→`w`, etc.; see execution_period Derivation)
+   - Select operator based on job type using **Control-M Appl_Type Mapping** table
+   - Apply SLA if defined → convert to `DeadlineAlert` (Airflow 3.x)
+   - Wire `on_failure_callback` to standard alert hook
+   - **Extract all Control-M variables** (`%%ODATE`, `%%PREV`, etc.) and translate to Airflow Jinja using **Variable Substitution Reference**; declare as **module-level variables** at the top of the DAG file (not hardcoded in task code)
+   - Add task-level comment documenting Control-M source and conditions:
+     ```python
+     # Control-M job: <job_name>
+     # INCOND: <condition> | OUTCOND: <condition>
+     # RUN_AS: <username>
+     ```
+
+4. **Wire dependencies:** Build task dependencies from Control-M `INCOND`/`OUTCOND` using **INCOND Resolution Algorithm**:
+   - If predecessor is in this folder → direct `>>` dependency
+   - If predecessor is external → add `ExternalTaskSensor`
+   - If `AND_OR="O"` with multiple conditions → use `trigger_rule=TriggerRule.ONE_SUCCESS`
+
+5. **Syntax check:** Validate any embedded shell scripts (SSHOperator) or PowerShell (PsrpOperator):
+   - Ensure backslashes are escaped correctly
+   - Ensure string delimiters are valid Python
+   - Use raw strings (`r"""..."""`) for Windows paths
+
+6. **Write output:**
+   - **Mode A:** Write plain DAG to `output/<dag_filename>.py`
+   - **Mode B:** Write DAG template to `output/dags/<dag_filename>.py` with `##KEY##` placeholders AND config JSON to `output/config/<env>/<dag_filename>.json`
+
+7. **Verify:** Run `python <output_file>.py` inside `.venv` (see Setup):
+   - Exit code 0 → success; proceed to step 8
+   - Exit code ≠ 0 → fix error, re-verify, repeat until clean
+   - **Hard gate:** Do not deliver until verification passes
+
+8. **Flag unsupported types:** For any job type not in **Control-M Appl_Type Mapping**, emit `# TODO: <job_type> not yet supported` comment and log a warning.
 
 ### Schedule Mapping
 
@@ -180,6 +204,14 @@ Follow the company DAG templates — see [`templates/`](templates/) for full wor
 1. Imports (`pendulum`, `send_email`, `logging`)
 2. Logging setup (`smtplib`, `airflow.utils.email` → DEBUG)
 3. Variables zone — all config as module-level `_` prefixed variables
+
+```Example
+_company = "##COMPANY##"
+_project = "##PROJECT##"
+_env = "##ENV##"
+_dag_name = "##DAG_NAME##"
+```
+
 4. `success_callback` / `failure_callback` using `send_email` + `pendulum.now('Asia/Bangkok')`
 5. `local_tz`, `default_args`, `dag = DAG(...)`
 6. Tasks (grouped by section with `####` banners)
@@ -290,6 +322,7 @@ Log: start, logical date, source/destination, completion, failure reason.
 #### Output Requirements
 
 * Produce complete runnable scripts.
+* All DAG files must be complete profesional comments (incl. header (before imports area) , task , dependencies)
 * Do not generate pseudocode — every `lftp`, `aws`, or command block must be fully written out with all options; never use `...` as a placeholder.
 * Do not omit required variables.
 * Keep scripts enterprise-readable and maintainable.
@@ -423,7 +456,7 @@ pip install apache-airflow \
 - `aws_conn_id` = `"aws_" + AWS-ACCOUNT.lower()` (e.g. `AWS-ACCOUNT="nssctrlm"` → `"aws_nssctrlm"`)
 
 ### 1. APPL_TYPE = `FILE_TRANS`
-- Check variables `FTP-*`
+- Check variables `FTP-*` (see [[ctrlm_aft_variables]] for complete variable reference)
 - L = Left (source), R = Right (destination)
 - `FTP_<L|R>OSTYPE` is the OS type (e.g. `Windows`, `Unix`)
 - Left OS = Unix/Linux → use `SSHOperator`; Left OS = Windows → use `PsrpOperator`
@@ -437,10 +470,192 @@ pip install apache-airflow \
 
 - Flow: pre-command (if any) → transfer command → post-command (if any)
 
+#### FILE_TRANS Command Generation
+
+Extract `FTP-*` variables from the Control-M job XML. For each active transfer slot (N = 1 to `FTP-TRANSFER_NUM`):
+
+1. **Check `FTP-UPLOAD{N}` value:**
+   - `3` → File Watcher (skip entirely — produce no transfer command)
+   - `1` → Upload: local `FTP-LPATH{N}` → remote `FTP-RPATH{N}`
+   - `0` → Download: remote `FTP-RPATH{N}` → local `FTP-LPATH{N}`
+
+2. **Determine protocol from `FTP-CONNTYPE1` / `FTP-CONNTYPE2`:**
+   - `LOCAL` + `SFTP/FTP/FTPS` → use `lftp` (Unix agent)
+   - `LOCAL` + `S3` → use `aws s3 cp` (Unix agent)
+   - `LOCAL` + `Azure` → use `azcopy` (Unix agent)
+   - `Windows` source → use `PsrpOperator` with PowerShell `lftp` or native cmdlets
+
+3. **Build the transfer command** (see templates below)
+
+4. **Wrap with pre/post commands** (if `FTP-PRECOMM{N}` / `FTP-POSTCOMM{N}` exist)
+
+5. **Handle multiple transfers:** Build a bash/PowerShell loop if `FTP-TRANSFER_NUM > 1`
+
+##### FILE_TRANS → Unix→Unix / Unix→Windows (lftp template)
+
+For `FTP-CONNTYPE2 ∈ {FTP, FTPS, SFTP}`:
+
+```bash
+bash -s << 'BASH'
+set -euo pipefail
+trap 'echo "[ERROR] Transfer failed at line $LINENO — exit code $?"' ERR
+
+LPATH="{{ FTP-LPATH{N} }}"
+RPATH="{{ FTP-RPATH{N} }}"
+RHOST="{{ FTP-RHOST }}"
+RUSER="{{ FTP-RUSER }}"
+RPASS="{{ var.value['FTP_RPASS_SECRET'] }}"
+PROTOCOL="{{ FTP-CONNTYPE2 }}"
+
+echo "[INFO] Starting {{ FTP-UPLOAD{N}=1 ? 'upload' : 'download' }}"
+echo "[INFO] Local: $LPATH"
+echo "[INFO] Remote: $RHOST:$RPATH"
+
+if [ "{{ FTP-UPLOAD{N} }}" = "1" ]; then
+    # Upload: local → remote
+    lftp -u "$RUSER","$RPASS" \
+        -e "set ftp:ssl-allow {{ FTP-CONNTYPE2=FTPS ? 'yes' : 'no' }}; \
+            set ftp:passive-mode {{ FTP-LPASSIVE }}; \
+            cd $(dirname "$RPATH"); \
+            put \"$LPATH\" -o \"$(basename \"$RPATH\")\"; \
+            quit" \
+        "$PROTOCOL://$RHOST"
+else
+    # Download: remote → local
+    lftp -u "$RUSER","$RPASS" \
+        -e "set ftp:ssl-allow {{ FTP-CONNTYPE2=FTPS ? 'yes' : 'no' }}; \
+            set ftp:passive-mode {{ FTP-RPASSIVE }}; \
+            get \"$RPATH\" -o \"$LPATH\"; \
+            quit" \
+        "$PROTOCOL://$RHOST"
+fi
+
+echo "[INFO] Transfer complete"
+BASH
+```
+
+> **Mode:** `FTP-TYPE{N}=I` (binary) → no flags; `FTP-TYPE{N}=A` (ASCII) → add `-a` flag to `put`/`get`
+> **Passive mode:** `FTP-LPASSIVE=1` → `set ftp:passive-mode 1`; `FTP-RPASSIVE=1` → same on remote side
+> **Post-action:** If `FTP-SRCOPT{N}=1` (delete), append `rm "$LPATH"` after upload; if `FTP-DSTOPT{N}=1`, append `rm` on destination
+
+##### FILE_TRANS → Unix→S3 (aws s3 cp template)
+
+For `FTP-CONNTYPE2=S3`:
+
+```bash
+bash -s << 'BASH'
+set -euo pipefail
+trap 'echo "[ERROR] S3 transfer failed at line $LINENO — exit code $?"' ERR
+
+LPATH="{{ FTP-LPATH{N} }}"
+RPATH="{{ FTP-RPATH{N} }}"
+S3_BUCKET="{{ FTP-S3_BUCKET_NAME }}"
+S3_REGION="{{ FTP-S3_REGION | 'ap-southeast-1' }}"
+AWS_PROFILE="{{ FTP-AWS_PROFILE | 'default' }}"
+
+echo "[INFO] Starting {{ FTP-UPLOAD{N}=1 ? 'upload to S3' : 'download from S3' }}"
+echo "[INFO] Bucket: s3://$S3_BUCKET/$RPATH"
+
+if [ "{{ FTP-UPLOAD{N} }}" = "1" ]; then
+    # Upload: local → S3
+    aws s3 cp "$LPATH" "s3://$S3_BUCKET$RPATH" \
+        --region "$S3_REGION" \
+        --profile "$AWS_PROFILE" \
+        {{ FTP-TYPE{N}=I ? '--no-progress' : '' }}
+else
+    # Download: S3 → local
+    aws s3 cp "s3://$S3_BUCKET$RPATH" "$LPATH" \
+        --region "$S3_REGION" \
+        --profile "$AWS_PROFILE" \
+        {{ FTP-TYPE{N}=I ? '--no-progress' : '' }}
+fi
+
+echo "[INFO] S3 transfer complete"
+BASH
+```
+
+> **Credentials:** Use Airflow Connections or `~/.aws/credentials` (default profile)
+> **Binary mode:** `FTP-TYPE{N}=I` → add `--no-progress`; `FTP-TYPE{N}=A` → omit
+
+##### FILE_TRANS → Unix→Azure (azcopy template)
+
+For `FTP-CONNTYPE2=Azure`:
+
+```bash
+bash -s << 'BASH'
+set -euo pipefail
+trap 'echo "[ERROR] Azure transfer failed at line $LINENO — exit code $?"' ERR
+
+LPATH="{{ FTP-LPATH{N} }}"
+RPATH="{{ FTP-RPATH{N} }}"
+STORAGE_ACCOUNT="{{ FTP-AZURE_STORAGE_ACCOUNT }}"
+CONTAINER="{{ FTP-AZURE_CONTAINER }}"
+SAS_TOKEN="{{ var.value['AZURE_SAS_TOKEN_SECRET'] }}"
+
+DEST_URI="https://${STORAGE_ACCOUNT}.blob.core.windows.net/${CONTAINER}${RPATH}?${SAS_TOKEN}"
+
+echo "[INFO] Starting {{ FTP-UPLOAD{N}=1 ? 'upload to Azure' : 'download from Azure' }}"
+echo "[INFO] Container: $STORAGE_ACCOUNT/$CONTAINER"
+
+if [ "{{ FTP-UPLOAD{N} }}" = "1" ]; then
+    # Upload: local → Azure
+    azcopy copy "$LPATH" "$DEST_URI"
+else
+    # Download: Azure → local
+    azcopy copy "$DEST_URI" "$LPATH"
+fi
+
+echo "[INFO] Azure transfer complete"
+BASH
+```
+
+> **Auth:** SAS token stored in Airflow Variable, never hardcoded
+
+##### FILE_TRANS → Windows source (PowerShell template)
+
+For Windows source (`FTP-LOSTYPE=Windows`), use `PsrpOperator` with PowerShell:
+
+```powershell
+$ErrorActionPreference = 'Stop'
+
+$LPath = "{{ FTP-LPATH{N} }}"
+$RPath = "{{ FTP-RPATH{N} }}"
+$RHost = "{{ FTP-RHOST }}"
+$RUser = "{{ FTP-RUSER }}"
+$RPass = "{{ var.value['FTP_RPASS_SECRET'] }}"
+
+Write-Host "[INFO] Starting {{ FTP-UPLOAD{N}=1 ? 'upload' : 'download' }}"
+Write-Host "[INFO] Local: $LPath"
+Write-Host "[INFO] Remote: $RHost : $RPath"
+
+# For SFTP/FTP via lftp (if installed on Windows)
+# For native SMB, use Copy-Item with -Credential
+
+if ("{{ FTP-CONNTYPE2 }}" -eq "SFTP" -or "{{ FTP-CONNTYPE2 }}" -eq "FTP") {
+    $Credential = New-Object System.Management.Automation.PSCredential(
+        $RUser,
+        (ConvertTo-SecureString $RPass -AsPlainText -Force)
+    )
+    
+    if ("{{ FTP-UPLOAD{N} }}" -eq "1") {
+        # Upload: local → remote (e.g., via mapped SMB drive)
+        Copy-Item "$LPath" "\\$RHost\$RPath" -Force
+    } else {
+        # Download: remote → local
+        Copy-Item "\\$RHost\$RPath" "$LPath" -Force
+    }
+} else {
+    Write-Host "[ERROR] Unsupported protocol on Windows: {{ FTP-CONNTYPE2 }}"
+    exit 1
+}
+
+Write-Host "[INFO] Transfer complete"
+```
+
 #### FILE_TRANS → S3 Specific Rules (`FTP-CONNTYPE2=S3`)
 - Operator: `SSHOperator` on `FTP-LHOST` (local agent, e.g. `"dunlop"`)
 - `ssh_conn_id` derived from `NODEID` (see Connection ID Derivation)
-- Command: `aws s3 cp <FTP-LPATH1> s3://<FTP-S3_BUCKET_NAME><FTP-RPATH1><filename>`
+- Command: use **aws s3 cp template** above
 - `FTP-S3_BUCKET_NAME` variable maps to the S3 bucket name
 - `FTP-UPLOAD1=1` → upload (local → S3); `FTP-UPLOAD1=0` → download (S3 → local)
 - `FTP-TYPE1=I` → binary (`--no-progress`); `FTP-TYPE1=A` → ASCII
