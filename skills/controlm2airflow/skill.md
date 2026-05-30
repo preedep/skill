@@ -62,6 +62,16 @@ Translate Control-M date/variable expressions to Airflow Jinja templates:
 
 > For any unrecognised `%%` expression, emit it as a `# TODO:` comment and use a placeholder string.
 
+### Airflow Date/Time Best Practices
+
+Apply these principles consistently across all generated scripts (bash, PowerShell, Python):
+
+* Use Airflow logical date semantics instead of current system time.
+* Prefer `{{ ds }}` (YYYY-MM-DD) and `{{ ds_nodash }}` (YYYYMMDD) for date strings in file paths, filenames, and SQL parameters.
+* Use `{{ logical_date.strftime('%Y') }}`, `{{ logical_date.strftime('%m') }}`, `{{ logical_date.strftime('%d') }}` when individual date parts are needed.
+* **Never use bare `{{ logical_date }}`** in file paths or date strings — it renders as ISO datetime with timezone offset (e.g. `2026-05-28T00:00:00+07:00`), invalid in filenames.
+* Treat Control-M `%%ODATE` / `%%$ODATE` as `{{ ds_nodash }}` (YYYYMMDD) — consistent with Variable Substitution Reference above.
+
 
 ### Config JSON Schema
 
@@ -268,11 +278,7 @@ BASH"""
 
 #### Airflow Scheduling Semantics
 
-* Use Airflow logical date semantics instead of current system time.
-* Prefer `{{ ds }}` (YYYY-MM-DD) and `{{ ds_nodash }}` (YYYYMMDD) for date strings in file paths, filenames, and SQL parameters.
-* Use `{{ logical_date.strftime('%Y') }}`, `{{ logical_date.strftime('%m') }}`, `{{ logical_date.strftime('%d') }}` when individual date parts are needed.
-* **Never use bare `{{ logical_date }}` in file paths or date strings** — it renders as an ISO datetime with timezone offset (e.g. `2026-05-28T00:00:00+07:00`) which contains colons and is invalid in filenames on most systems.
-* Do not use `date`, `$(date)`, or runtime timestamps for business date calculations unless explicitly required.
+Follow the **Airflow Date/Time Best Practices** section (see above) for all date variable handling. For bash scripts specifically, avoid `date` / `$(date)` for business date calculations unless explicitly required.
 
 #### Error Handling
 
@@ -366,11 +372,7 @@ powershell = r"""
 
 #### Airflow Scheduling Semantics
 
-* Use Airflow logical date semantics instead of runtime system time.
-* Prefer `{{ ds }}` (YYYY-MM-DD) and `{{ ds_nodash }}` (YYYYMMDD) for date strings in file paths, filenames, and SQL parameters.
-* Use `{{ logical_date.strftime('%Y') }}`, `{{ logical_date.strftime('%m') }}` etc. when individual date parts are needed.
-* **Never use bare `{{ logical_date }}` in file paths or date strings** — it renders as an ISO datetime with timezone offset (e.g. `2026-05-28T00:00:00+07:00`) which is invalid in Windows filenames.
-* Do not use `Get-Date` for business date calculations unless explicitly required.
+Follow the **Airflow Date/Time Best Practices** section (see above) for all date variable handling. For PowerShell scripts specifically, avoid `Get-Date` for business date calculations unless explicitly required.
 
 #### Control-M Migration Rules
 
