@@ -30,6 +30,7 @@ skills/*/research/
 logs/
 .DS_Store
 **/.DS_Store
+.claude/
 Cargo.toml
 Cargo.lock
 src/
