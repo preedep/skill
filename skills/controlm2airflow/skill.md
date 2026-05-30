@@ -681,24 +681,39 @@ Write-Host "[INFO] Transfer complete"
 
 
 ### 3. APPL_TYPE = `FileWatch`
-- Check variables `FileWatch-*`
+
+FileWatch monitors filesystem for file events (creation, deletion, modification) before allowing dependent tasks to proceed.
+
+- Check variables `FileWatch-*` (see [[ctrlm_filewatch_variables]] for complete variable reference)
+- Key parameters:
+  - `FileWatch-FILE_PATH` — file path/pattern to monitor (supports wildcards: `*`, `?`)
+  - `FileWatch-MODE` — `CREATE` or `DELETE`
+  - `FileWatch-TIME_LIMIT` — max monitoring duration (minutes); convert to seconds for Airflow `timeout`
+  - `FileWatch-INT_FILE_SEARCHES` — polling interval (seconds); use as `poke_interval`
+  - `FileWatch-NUM_OF_ITERATIONS` + `FileWatch-INT_FILESIZE_COMPARISON` — file size stability checks
+  - `FileWatch-MIN_DET_SIZE` — minimum file size (bytes); implement in custom sensor
+  - `FileWatch-START_TIME` / `FileWatch-STOP_TIME` — time window constraints
+  - `FileWatch-FILESIZE_WILDCARD` — enable size checks with wildcards (Y/N)
+
 - Check `NODEID` to determine remote host OS (refer to `Node ID Information` table)
-- Select sensor/operator based on NODEID OS and protocol:
+- Select sensor/operator based on NODEID OS and file location:
 
-| NODEID OS | Protocol | Approach | Provider package |
-|-----------|----------|----------|-----------------|
-| Airflow worker local | — | `FileSensor` | `apache-airflow-providers-standard` |
-| Unix/Linux (e.g. Dunlop, Donut) | SFTP | `SFTPSensor` | `apache-airflow-providers-sftp` |
-| Unix/Linux | FTPS | No native sensor — use `SSHOperator` with `lftp ls` polling loop; emit `# TODO: implement FTPS file watch` | — |
-| Windows (e.g. Glory) | SMB/mapped drive | No native sensor — `FileSensor` cannot reach a remote Windows path (e.g. `S:\`). Emit `# TODO: implement Windows remote file watch` and generate a `PsrpOperator` polling script as placeholder | — |
-| AWS S3 | S3 | `S3KeySensor` | `apache-airflow-providers-amazon` |
+| NODEID OS | File Location | Approach | Sensor/Operator | Provider |
+|-----------|---------------|----------|-----------------|----------|
+| Airflow worker local | Local filesystem | `FileSensor` with glob patterns | `FileSensor` | `apache-airflow-providers-standard` |
+| Unix/Linux (Dunlop, Donut) | Remote Unix/SFTP | `SFTPSensor` with timeout + poke_interval | `SFTPSensor` | `apache-airflow-providers-sftp` |
+| Unix/Linux | Remote FTPS | Custom `SSHOperator` with `lftp ls` polling; emit TODO | Custom sensor | — |
+| Windows (Glory) | Windows SMB/mapped drive | Custom `PsrpOperator` polling script; emit TODO | `PsrpOperator` | — |
+| AWS S3 | S3 bucket | `S3KeySensor` with prefix/wildcard | `S3KeySensor` | `apache-airflow-providers-amazon` |
 
-> **`FileSensor` only works for files on the Airflow worker's own local filesystem.** Never use `FileSensor` for a path on a remote Windows server (e.g. `S:\`, `D:\`) or a remote Unix host — the worker cannot see those paths.
+> **Critical:** `FileSensor` **only works for files on the Airflow worker's own local filesystem.** Never use `FileSensor` for a path on a remote Windows server (e.g. `S:\`, `D:\`) or remote Unix host — the worker cannot see those paths. Use `PsrpOperator` for Windows and `SSHOperator` for Unix remotes.
 
 - All sensors: use `mode='reschedule'` (deferrable preferred if provider supports it, then reschedule, then poke)
-- `timeout` = `TIME_LIMIT` converted to seconds
-- `poke_interval` = `TIME_LIMIT / NUM_OF_ITERATIONS`
-- `START_TIME` = aligns with DAG schedule
+- Parameter mapping:
+  - `timeout` = `FileWatch-TIME_LIMIT` (minutes) × 60 (seconds)
+  - `poke_interval` = `FileWatch-INT_FILE_SEARCHES` (already in seconds)
+  - Stability window = `FileWatch-NUM_OF_ITERATIONS` × `FileWatch-INT_FILESIZE_COMPARISON`
+  - `START_TIME` = align DAG `schedule` with this time window (if specified)
 
 #### Windows FileWatch — PsrpOperator polling placeholder
 
