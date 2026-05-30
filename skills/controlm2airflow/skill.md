@@ -213,9 +213,10 @@ Translate Control-M date/variable expressions to Airflow Jinja templates:
 Follow the company DAG (focus on Airflow 3.x) templates — see [`templates/`](templates/) for full working examples.
 
 ### File structure order
-1. Imports (`pendulum`, `send_email`, `logging`)
-2. Logging setup (`smtplib`, `airflow.utils.email` → DEBUG)
-3. Variables zone — all config as module-level `_` prefixed variables
+1. **Header comment** — Control-M source documentation (DAG ID, folder, jobs, skill version)
+2. Imports (`pendulum`, `send_email`, `logging`)
+3. Logging setup (`smtplib`, `airflow.utils.email` → DEBUG)
+4. Variables zone — all config as module-level `_` prefixed variables
 
 ```Example
 _company = "##COMPANY##"
