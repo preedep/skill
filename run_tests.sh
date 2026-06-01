@@ -161,9 +161,11 @@ for input_path in "${INPUT_FILES[@]}"; do
     # each case gets its own output subdirectory (preserved — not wiped)
     mkdir -p "${CASE_OUTPUT}"
 
-    # run skill via claude
+    # run skill via claude — write prompt to temp file to avoid stdin pipe issues
     info "Running claude skill..."
-    PROMPT="Follow the skill defined in skills/controlm2airflow/skill.md to convert Control-M jobs to Airflow DAGs.
+    PROMPT_FILE="$(mktemp /tmp/ctrlm_prompt_XXXXXX.txt)"
+    cat > "${PROMPT_FILE}" << EOF
+Follow the skill defined in skills/controlm2airflow/skill.md to convert Control-M jobs to Airflow DAGs.
 
 Input XML: ${input_path}
 Output directory: ${CASE_OUTPUT}/
@@ -172,9 +174,11 @@ Parameters:
 company  = ${COMPANY}
 app_id   = ${app_id}
 app_code = ${app_code}
-env      = ${ENV}"
+env      = ${ENV}
+EOF
 
-    echo "${PROMPT}" | claude --print --allowedTools "Read,Write,Bash" 2>&1 | tee "${CASE_LOG}"
+    claude --print --allowedTools "Read,Write,Bash" < "${PROMPT_FILE}" 2>&1 | tee "${CASE_LOG}"
+    rm -f "${PROMPT_FILE}"
 
     # check output was generated
     dag_files=("${CASE_OUTPUT}"/*.py)
