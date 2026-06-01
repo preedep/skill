@@ -247,10 +247,17 @@ Follow the company DAG (focus on Airflow 3.x) templates — see [`templates/`](t
 ### File structure order
 1. **Header comment** — Control-M source documentation (DAG ID, folder, jobs, skill version)
 2. Imports (`pendulum`, `send_email`, `logging`)
-3. Logging setup (`smtplib`, `airflow.utils.email` → DEBUG)
-4. Variables zone — all config as module-level `_` prefixed variables
+3. Logging setup — **always include both lines**, separated by a `###################### logging ######################` banner:
+   ```python
+   ###################### logging ######################
+   import smtplib  # (already imported above or add here)
+   logging.getLogger("smtplib").setLevel(logging.DEBUG)
+   logging.getLogger("airflow.utils.email").setLevel(logging.DEBUG)
+   ```
+4. Variables zone — all config as module-level `_` prefixed variables, preceded by a `###################### variables zone ######################` banner:
 
 ```Example
+###################### variables zone ######################
 _company = "##COMPANY##"
 _project = "##PROJECT##"
 _env = "##ENV##"
