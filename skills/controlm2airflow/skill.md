@@ -411,6 +411,13 @@ Use `Write-Host "..."`. Log: start, logical date, source/destination, completion
 
 * Validate file existence before transfer or processing.
 * Use properly quoted Windows paths: `"D:\path\file.txt"`
+* **Wildcard paths:** If `$LPath` or `$RPath` contains `*` or `?`, use `-Path` without quotes so PowerShell expands the glob — double-quoted strings suppress wildcard expansion:
+  ```powershell
+  # Wildcard upload — unquoted -Path
+  Copy-Item -Path $LPath -Destination "\\$RHost\share\dest\" -Force
+  # Wildcard download — unquoted -Path
+  Copy-Item -Path "\\$RHost\share\$RPath" -Destination $LPath -Force
+  ```
 
 #### FTP / SFTP / FTPS
 
@@ -725,15 +732,6 @@ if ("{{ FTP-CONNTYPE2 }}" -eq "SFTP" -or "{{ FTP-CONNTYPE2 }}" -eq "FTP") {
 Write-Host "[INFO] Transfer complete"
 ```
 
-> **Wildcard paths:** If `$LPath` or `$RPath` contains `*` or `?`, use `-Path` without quotes so PowerShell expands the glob:
-> ```powershell
-> # Wildcard upload
-> Copy-Item -Path $LPath -Destination "\\$RHost\$RPath" -Force
-> # Wildcard download
-> Copy-Item -Path "\\$RHost\$RPath" -Destination $LPath -Force
-> ```
-> Double-quoted strings (`"$LPath"`) suppress wildcard expansion in PowerShell.
-
 #### FILE_TRANS → S3 Specific Rules (`FTP-CONNTYPE2=S3`)
 - Operator: `SSHOperator` on `FTP-LHOST` (local agent, e.g. `"dunlop"`)
 - `ssh_conn_id` derived from `NODEID` (see Connection ID Derivation)
@@ -785,8 +783,56 @@ FileWatch monitors filesystem for file events (creation, deletion, modification)
 > `FileSensor` **only works for files on the Airflow worker's own local filesystem.** Never use `FileSensor` for:
 > - Remote Windows paths (`S:\`, `D:\`, etc.) on Windows NODEID — use `PsrpOperator`
 > - Remote Unix paths (`/data/...`) on Unix NODEID — use `SFTPSensor` or `SSHOperator`
-> 
+>
 > **The Airflow worker cannot directly access remote filesystems without an operator.**
+
+> **Critical Rule — SFTPSensor Wildcard Restriction:**
+> `SFTPSensor.path` uses `SFTP.stat()` internally — exact path lookup only, no glob expansion. A wildcard path (`*`, `?`) will never match.
+> When `FileWatch-FILE_PATH` contains `*` or `?` on a Unix/Linux NODEID, replace `SFTPSensor` with an `SSHOperator` polling script:
+> ```python
+> # TODO: SFTPSensor does not support wildcards — using SSHOperator polling instead
+> task = SSHOperator(
+>     task_id='<task_id>',
+>     ssh_conn_id='ssh_<nodeid>',
+>     command=r"""bash -s << 'BASH'
+> set -euo pipefail
+> FILE_PATTERN="<FileWatch-FILE_PATH with %% variables substituted>"
+> TIMEOUT=<TIME_LIMIT × 60>
+> POLL=<INT_FILE_SEARCHES>
+> ELAPSED=0
+> echo "[INFO] Waiting for: $FILE_PATTERN"
+> while [ $ELAPSED -lt $TIMEOUT ]; do
+>     if ls $FILE_PATTERN 2>/dev/null | grep -q .; then
+>         echo "[INFO] File found: $(ls $FILE_PATTERN)"
+>         exit 0
+>     fi
+>     echo "[INFO] Not yet found. Elapsed: ${ELAPSED}s / ${TIMEOUT}s"
+>     sleep $POLL
+>     ELAPSED=$((ELAPSED + POLL))
+> done
+> echo "[ERROR] File not found after ${TIMEOUT}s: $FILE_PATTERN"
+> exit 1
+> BASH""",
+>     on_failure_callback=failure_callback,
+> )
+> ```
+> Note: `ls $FILE_PATTERN` is intentionally unquoted so the shell expands the glob.
+
+> **Critical Rule — S3KeySensor Wildcard:**
+> When `FileWatch-FILE_PATH` (after `%%` substitution) contains `*` or `?`, always set `wildcard_match=True`. Without it, S3KeySensor performs an exact key lookup and wildcards silently never match:
+> ```python
+> S3KeySensor(
+>     task_id='<task_id>',
+>     bucket_name='<bucket>',
+>     bucket_key='<prefix>/{{ ds_nodash }}*.txt',
+>     wildcard_match=True,   # REQUIRED when path contains * or ?
+>     aws_conn_id='aws_<account>',
+>     poke_interval=<INT_FILE_SEARCHES>,
+>     timeout=<TIME_LIMIT × 60>,
+>     mode='reschedule',
+>     on_failure_callback=failure_callback,
+> )
+> ```
 
 - All sensors: use `mode='reschedule'` (deferrable preferred if provider supports it, then reschedule, then poke)
 - Parameter mapping:
