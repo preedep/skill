@@ -24,6 +24,9 @@ output/
 input/
 test_run.sh
 test_run_all.sh
+test_input*.sh
+final_test.sh
+.idea/
 skills/*/templates/
 skills/*/research/
 .venv/
