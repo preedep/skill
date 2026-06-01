@@ -172,7 +172,7 @@ for input_path in "${INPUT_FILES[@]}"; do
         printf 'app_id   = %s\n' "${app_id}"
         printf 'app_code = %s\n' "${app_code}"
         printf 'env      = %s\n' "${ENV}"
-    } | claude --print --allowedTools "Read,Write,Bash" 2>&1 | tee "${CASE_LOG}"
+    } | claude --print --allowedTools "Read,Write,Bash" 2>&1 | tee "${CASE_LOG}" || true
 
     # check output was generated
     dag_files=("${CASE_OUTPUT}"/*.py)
