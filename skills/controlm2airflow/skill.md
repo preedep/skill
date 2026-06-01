@@ -246,7 +246,14 @@ _dag_name = "##DAG_NAME##"
 - **Imports:** only import operators/sensors that are actually used in the DAG. 
   - `EmptyOperator` → `from airflow.providers.standard.operators.empty import EmptyOperator` (Airflow 3.x) — never from `airflow.operators.empty` (deprecated)
   - `TriggerRule` → `from airflow.models.trigger_rule import TriggerRule` (Airflow 3.x) — **ONLY if** `AND_OR="O"` appears in any INCOND definition. Check all INCOND tags first; if none have `AND_OR="O"`, do NOT import. Never import from `airflow.utils.trigger_rule` (deprecated).
-  - `send_email` → `from airflow.utils.email import send_email` — **ONLY if** callbacks are enabled (`_enable_email_notification_success` or `_enable_email_notification_fail` = True)
+  - `send_email` → `from airflow.utils.email import send_email` — **ONLY if** callbacks are enabled. Place the import **inside** the `if` guard, not at the top of the callback or at module level:
+    ```python
+    def success_callback(context):
+        if _enable_email_notification_success:
+            from airflow.utils.email import send_email
+            send_email(...)
+    ```
+    An import placed before the `if` guard fires on every callback invocation regardless of the flag — this is wrong.
   - Do not import operators/sensors unless a task uses them. Avoid importing unused symbols.
 - **All inputs lowercased:** `company`, `app_id`, `app_code`, `folder_name`, `env`, all tag values, task IDs, Python variable names, and the DAG ID components must always be `.lower()` — regardless of how they are provided as input. Even if the user passes `APP_ID=APP1234`, store and emit it as `app1234`.
 - **Task Python variable name:** `<app_id>_<app_code>_task_<job_name>_<period>` — all lowercase, `-` replaced with `_` (e.g. `app1234_testapp_task_rt_rb2cm005_d`). The `task_id` string uses `-` per the Naming convention table.
@@ -256,6 +263,7 @@ _dag_name = "##DAG_NAME##"
 - DAG-level callbacks: `on_success_callback=success_callback if _enable_email_notification_success else None` and `on_failure_callback=failure_callback if _enable_email_notification_fail else None`
 - **`dag=dag` is removed in Airflow 3.x** — do not pass `dag=dag` as a keyword argument to any operator or sensor. Declare all tasks inside a `with DAG(...) as dag:` context manager instead.
 - **`# RUN_AS` comment:** always write the actual RUN_AS username from the Control-M job (e.g. `# RUN_AS: ctrlm`) — never use a placeholder like `# RUN_AS comment`.
+- **Module-level variables — only declare what is actually referenced:** Only declare a `_`-prefixed module-level variable when it is referenced by the operator/sensor parameter directly (e.g. `ssh_conn_id=_ssh_conn_id`) or via Airflow Jinja in a templated field. Do NOT declare module-level path variables (`_lpath`, `_rpath`, etc.) when the value is only used inside a `command=r"""..."""` or `powershell=r"""..."""` raw string body — raw strings cannot reference Python variables. In those cases, embed the substituted value directly in the script string. Declaring a variable that is never referenced is dead code.
 
 ### Shell Script Guidelines
 
@@ -329,6 +337,15 @@ Log: start, logical date, source/destination, completion, failure reason.
 * Prefer non-interactive commands.
 * For `lftp`, use `set ssl:verify-certificate no` only when explicitly required by legacy systems.
 * Validate transfer results.
+* **FTP-SSL (`CONNTYPE2=FTP-SSL`):** use `ftps://` scheme and force SSL — never fall back to plain FTP:
+  ```bash
+  lftp -u "$RUSER","$RPASS" \
+      -e "set ftp:ssl-allow yes; set ftp:ssl-force yes; \
+          set ftp:passive-mode 1; \
+          mput -O \"$RPATH\" $LPATH; quit" \
+      "ftps://$RHOST"
+  ```
+  Using `ftp://` with only `set ftp:ssl-allow yes` allows a plain-FTP fallback — always add `set ftp:ssl-force yes` and use the `ftps://` scheme.
 
 #### SSHOperator Compatibility
 
@@ -363,6 +380,22 @@ Use for PowerShell scripts embedded in PsrpOperator tasks.
 * Scripts must be deterministic and rerun-safe.
 * Avoid interactive prompts.
 * Avoid GUI-dependent commands.
+* **Windows OS `TASKTYPE=Command` (`.bat` / `.cmd`):** wrap via `cmd /c` inside `powershell=r"""..."""` — do NOT use a bare `command=` string. Always include `$ErrorActionPreference = 'Stop'` and check `$LASTEXITCODE`:
+  ```python
+  PsrpOperator(
+      task_id='...',
+      psrp_conn_id='psrp_<nodeid>',
+      powershell=r"""
+  $ErrorActionPreference = 'Stop'
+  & cmd /c "F:\path\script.bat {{ ds_nodash }}"
+  if ($LASTEXITCODE -ne 0) {
+      Write-Host "[ERROR] Script failed: exit $LASTEXITCODE"
+      exit $LASTEXITCODE
+  }
+  """,
+      on_failure_callback=failure_callback,
+  )
+  ```
 
 #### Script Format
 
