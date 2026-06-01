@@ -1,19 +1,22 @@
 #!/usr/bin/env bash
-# run_tests.sh — run all 6 test cases through the controlm2airflow skill
+# run_tests.sh — run controlm2airflow skill on all input/*.xml files
 # Usage:
-#   ./run_tests.sh              # run all cases
-#   ./run_tests.sh 1            # run only case 1
-#   ./run_tests.sh 1 3 5        # run specific cases
+#   ./run_tests.sh                        # run all input/*.xml
+#   ./run_tests.sh input/test_case1.xml   # run specific file(s)
+#
+# Output: output/<basename_without_ext>/  per input file (preserved across runs)
+# Logs:   logs/run_tests_<timestamp>.log  + logs/<basename>_<timestamp>.log per case
 
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-OUTPUT_DIR="${SCRIPT_DIR}/output"
+INPUT_DIR="${SCRIPT_DIR}/input"
+OUTPUT_BASE="${SCRIPT_DIR}/output"
 LOG_DIR="${SCRIPT_DIR}/logs"
 TIMESTAMP="$(date +%Y%m%d_%H%M%S)"
 SUMMARY_LOG="${LOG_DIR}/run_tests_${TIMESTAMP}.log"
 
-mkdir -p "${OUTPUT_DIR}" "${LOG_DIR}"
+mkdir -p "${OUTPUT_BASE}" "${LOG_DIR}"
 
 GREEN='\033[0;32m'
 RED='\033[0;31m'
@@ -25,22 +28,40 @@ pass() { log "${GREEN}[PASS]${NC} $*"; }
 fail() { log "${RED}[FAIL]${NC} $*"; }
 info() { log "${YELLOW}[INFO]${NC} $*"; }
 
-# id | label | input_file | company | app_id | app_code | env
-declare -a CASES=(
-    "1|FILE_TRANS pre+post command          |test_case1_filetrans_prepost.xml   |scb|AP1001|erp   |dev"
-    "2|FILE_TRANS wildcard paths            |test_case2_filetrans_wildcard.xml  |scb|AP1002|expinv|dev"
-    "3|FILE_TRANS FTP-UPLOAD=3 (watch mode)|test_case3_filetrans_filewatch.xml |scb|AP1003|als   |dev"
-    "4|FileWatch jobs (PsrpOperator)        |test_case4_filewatch.xml           |scb|AP1004|edw   |dev"
-    "5|OS jobs (SSHOperator)                |test_case5_os_jobs.xml             |scb|AP1005|clr   |dev"
-    "6|AWS Step Function                    |test_case6_aws_stepfunction.xml    |scb|AP1006|nss   |dev"
-)
-
-# determine which cases to run
+# build list of input files to process
 if [ $# -gt 0 ]; then
-    RUN_IDS=("$@")
+    INPUT_FILES=("$@")
 else
-    RUN_IDS=(1 2 3 4 5 6)
+    INPUT_FILES=("${INPUT_DIR}"/*.xml)
 fi
+
+if [ ${#INPUT_FILES[@]} -eq 0 ] || [ ! -f "${INPUT_FILES[0]}" ]; then
+    echo "No input XML files found in ${INPUT_DIR}/"
+    exit 1
+fi
+
+# default conversion params — override per file by naming convention if needed
+COMPANY="scb"
+APP_CODE="app"
+ENV="dev"
+
+# per-file param overrides keyed by filename prefix
+declare -A APP_IDS=(
+    ["test_case1"]="AP1001"
+    ["test_case2"]="AP1002"
+    ["test_case3"]="AP1003"
+    ["test_case4"]="AP1004"
+    ["test_case5"]="AP1005"
+    ["test_case6"]="AP1006"
+)
+declare -A APP_CODES=(
+    ["test_case1"]="erp"
+    ["test_case2"]="expinv"
+    ["test_case3"]="als"
+    ["test_case4"]="edw"
+    ["test_case5"]="clr"
+    ["test_case6"]="nss"
+)
 
 TOTAL=0
 PASSED=0
@@ -50,42 +71,47 @@ FAILED_CASES=()
 log "========================================"
 log "  controlm2airflow — test suite"
 log "  $(date '+%Y-%m-%d %H:%M:%S')"
+log "  inputs: ${#INPUT_FILES[@]} file(s)"
 log "========================================"
 
-for case_def in "${CASES[@]}"; do
-    IFS='|' read -r id label input_file company app_id app_code env <<< "${case_def}"
-    # trim whitespace
-    label="$(echo "${label}" | xargs)"
-    input_file="$(echo "${input_file}" | xargs)"
-    app_code="$(echo "${app_code}" | xargs)"
+IDX=0
+for input_path in "${INPUT_FILES[@]}"; do
+    IDX=$((IDX + 1))
+    input_file="$(basename "${input_path}")"
+    base="${input_file%.xml}"
+    CASE_LOG="${LOG_DIR}/${base}_${TIMESTAMP}.log"
+    CASE_OUTPUT="${OUTPUT_BASE}/${base}"
 
-    # skip if not requested
-    skip=true
-    for req in "${RUN_IDS[@]}"; do
-        [ "${req}" = "${id}" ] && skip=false && break
+    # resolve per-file params — match longest prefix key
+    app_id="AP$(printf '%04d' "${IDX}")"
+    app_code="${APP_CODE}"
+    for key in "${!APP_IDS[@]}"; do
+        if [[ "${base}" == "${key}"* ]]; then
+            app_id="${APP_IDS[${key}]}"
+            app_code="${APP_CODES[${key}]}"
+            break
+        fi
     done
-    $skip && continue
 
     TOTAL=$((TOTAL + 1))
-    CASE_LOG="${LOG_DIR}/case${id}_${TIMESTAMP}.log"
-    input_path="${SCRIPT_DIR}/input/${input_file}"
 
     log ""
     log "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-    info "Case ${id}: ${label}"
+    info "Case ${IDX}: ${base}"
     info "Input  : ${input_file}"
-    info "Params : company=${company} app_id=${app_id} app_code=${app_code} env=${env}"
+    info "Output : output/${base}/"
+    info "Params : company=${COMPANY} app_id=${app_id} app_code=${app_code} env=${ENV}"
     log "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
 
     if [ ! -f "${input_path}" ]; then
-        fail "Case ${id} — input file not found: ${input_path}"
+        fail "Case ${IDX} — input file not found: ${input_path}"
         FAILED=$((FAILED + 1))
-        FAILED_CASES+=("${id}: ${label} — input file missing")
+        FAILED_CASES+=("${IDX}: ${base} — input file missing")
         continue
     fi
 
-    # clean previous output
-    rm -f "${OUTPUT_DIR}"/*.py
+    # each case gets its own output subdirectory (preserved — not wiped)
+    mkdir -p "${CASE_OUTPUT}"
 
     # run skill via claude
     info "Running claude skill..."
@@ -93,23 +119,28 @@ for case_def in "${CASES[@]}"; do
 Follow the skill defined in skills/controlm2airflow/skill.md to convert Control-M jobs to Airflow DAGs.
 
 Input XML: ${input_path}
-Output directory: ${OUTPUT_DIR}/
+Output directory: ${CASE_OUTPUT}/
 
 Parameters:
-company  = ${company}
+company  = ${COMPANY}
 app_id   = ${app_id}
 app_code = ${app_code}
-env      = ${env}
+env      = ${ENV}
 EOF
 
     # check output was generated
-    dag_files=("${OUTPUT_DIR}"/*.py)
+    dag_files=("${CASE_OUTPUT}"/*.py)
     if [ ${#dag_files[@]} -eq 0 ] || [ ! -f "${dag_files[0]}" ]; then
-        fail "Case ${id} — no .py output generated"
+        fail "Case ${IDX} — no .py output generated in ${CASE_OUTPUT}/"
         FAILED=$((FAILED + 1))
-        FAILED_CASES+=("${id}: ${label} — no DAG output")
+        FAILED_CASES+=("${IDX}: ${base} — no DAG output")
         continue
     fi
+
+    info "Generated ${#dag_files[@]} DAG file(s):"
+    for dag in "${dag_files[@]}"; do
+        info "  $(basename "${dag}") ($(wc -l < "${dag}") lines)"
+    done
 
     # syntax-check each generated DAG
     syntax_ok=true
@@ -124,12 +155,12 @@ EOF
     done
 
     if $syntax_ok; then
-        pass "Case ${id} PASSED — ${label}"
+        pass "Case ${IDX} PASSED — ${base}"
         PASSED=$((PASSED + 1))
     else
-        fail "Case ${id} FAILED — ${label} (DAG syntax error, see ${CASE_LOG})"
+        fail "Case ${IDX} FAILED — ${base} (see ${CASE_LOG})"
         FAILED=$((FAILED + 1))
-        FAILED_CASES+=("${id}: ${label} — DAG syntax error")
+        FAILED_CASES+=("${IDX}: ${base} — DAG syntax error")
     fi
 done
 
@@ -144,7 +175,9 @@ if [ ${#FAILED_CASES[@]} -gt 0 ]; then
         log "  • ${fc}"
     done
 fi
-log "  Summary log: ${SUMMARY_LOG}"
+log ""
+log "  Output : ${OUTPUT_BASE}/<case-name>/"
+log "  Log    : ${SUMMARY_LOG}"
 log "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
 
 [ "${FAILED}" -eq 0 ]
