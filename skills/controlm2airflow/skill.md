@@ -62,6 +62,8 @@ Translate Control-M date/variable expressions to Airflow Jinja templates:
 
 > For any unrecognised `%%` expression, emit it as a `# TODO:` comment and use a placeholder string.
 
+> **Wildcard preservation:** After substituting `%%` variables in file paths, preserve any surrounding `*`/`?` wildcards verbatim — do not strip them. Example: `%%$ODATE..*` → `{{ ds_nodash }}*`.
+
 ### Airflow Date/Time Best Practices
 
 Apply these principles consistently across all generated scripts (bash, PowerShell, Python):
@@ -592,6 +594,10 @@ BASH
 > **Mode:** `FTP-TYPE{N}=I` (binary) → no flags; `FTP-TYPE{N}=A` (ASCII) → add `-a` flag to `put`/`get`
 > **Passive mode:** `FTP-LPASSIVE=1` → `set ftp:passive-mode 1`; `FTP-RPASSIVE=1` → same on remote side
 > **Post-action:** If `FTP-SRCOPT{N}=1` (delete), append `rm "$LPATH"` after upload; if `FTP-DSTOPT{N}=1`, append `rm` on destination
+> **Wildcard paths:** If `FTP-LPATH{N}` or `FTP-RPATH{N}` contains `*` or `?`, switch:
+> - `put "$LPATH"` → `mput -O "$(dirname "$RPATH")" "$LPATH"`
+> - `get "$RPATH"` → `mget -O "$LPATH" "$RPATH"`
+> Do NOT use `get`/`put` with wildcard paths — lftp will not expand them.
 
 ##### FILE_TRANS → Unix→S3 (aws s3 cp template)
 
@@ -631,6 +637,13 @@ BASH
 
 > **Credentials:** Use Airflow Connections or `~/.aws/credentials` (default profile)
 > **Binary mode:** `FTP-TYPE{N}=I` → add `--no-progress`; `FTP-TYPE{N}=A` → omit
+> **Wildcard paths:** If `FTP-LPATH{N}` or `FTP-RPATH{N}` contains `*` or `?`, use `aws s3 sync` instead of `aws s3 cp`:
+> ```bash
+> aws s3 sync "$(dirname "$LPATH")" "s3://$S3_BUCKET/$(dirname "$RPATH")/" \
+>     --include "$(basename "$LPATH")" --exclude "*" \
+>     --region "$S3_REGION" --profile "$AWS_PROFILE"
+> ```
+> `aws s3 cp` does not support wildcard expansion.
 
 ##### FILE_TRANS → Unix→Azure (azcopy template)
 
@@ -665,6 +678,11 @@ BASH
 ```
 
 > **Auth:** SAS token stored in Airflow Variable, never hardcoded
+> **Wildcard paths:** If `FTP-LPATH{N}` contains `*` or `?`, use `--include-pattern` instead of passing the glob directly:
+> ```bash
+> azcopy copy "$(dirname "$LPATH")/*" "$DEST_URI" --include-pattern "$(basename "$LPATH")"
+> ```
+> Quoted glob strings are not expanded by the shell — pass the pattern via `--include-pattern`.
 
 ##### FILE_TRANS → Windows source (PowerShell template)
 
@@ -706,6 +724,15 @@ if ("{{ FTP-CONNTYPE2 }}" -eq "SFTP" -or "{{ FTP-CONNTYPE2 }}" -eq "FTP") {
 
 Write-Host "[INFO] Transfer complete"
 ```
+
+> **Wildcard paths:** If `$LPath` or `$RPath` contains `*` or `?`, use `-Path` without quotes so PowerShell expands the glob:
+> ```powershell
+> # Wildcard upload
+> Copy-Item -Path $LPath -Destination "\\$RHost\$RPath" -Force
+> # Wildcard download
+> Copy-Item -Path "\\$RHost\$RPath" -Destination $LPath -Force
+> ```
+> Double-quoted strings (`"$LPath"`) suppress wildcard expansion in PowerShell.
 
 #### FILE_TRANS → S3 Specific Rules (`FTP-CONNTYPE2=S3`)
 - Operator: `SSHOperator` on `FTP-LHOST` (local agent, e.g. `"dunlop"`)
