@@ -9,15 +9,19 @@ This repository consolidates reusable skills developed by Preedee@Digital.Dev fo
 ```
 skill/
 ├── CLAUDE.md
-├── LICENSE           (MIT)
-├── .gitignore        (Rust defaults)
-└── skills/           # individual skill implementations
-    ├── controlm2airflow/   # Convert Control-M jobs to Apache Airflow DAGs
+├── LICENSE               (MIT)
+├── .gitignore
+├── run_tests.sh          # run all skill test cases (see Testing section)
+├── input/                # test input XML files (gitignored — no real data)
+├── output/               # generated DAG files (gitignored)
+├── logs/                 # test run logs (gitignored)
+└── skills/               # individual skill implementations
+    ├── controlm2airflow/ # Convert Control-M jobs to Apache Airflow DAGs
     │   ├── skill.md
     │   └── controlm-schema.xsd
-    └── <skill-name>/       # (future skills follow the same pattern)
-        ├── skill.md        # skill definition: purpose, inputs, outputs, examples
-        └── ...             # supporting assets or code
+    └── <skill-name>/     # (future skills follow the same pattern)
+        ├── skill.md      # skill definition: purpose, inputs, outputs, examples
+        └── ...           # supporting assets or code
 ```
 
 > Add a new entry here whenever a skill directory is created.
@@ -48,6 +52,26 @@ skill/
 - Unit tests live in the same file (`#[cfg(test)]`).
 - Integration tests go in `tests/`.
 - Run `cargo test` before committing.
+
+#### controlm2airflow skill tests
+
+Test inputs live in `input/test_case*.xml` (gitignored). Run all cases:
+
+```bash
+./run_tests.sh          # all 6 cases
+./run_tests.sh 1 4      # specific cases only
+```
+
+| Case | File | Feature tested |
+|------|------|----------------|
+| 1 | `test_case1_filetrans_prepost.xml` | FILE_TRANS with pre-command + post-command |
+| 2 | `test_case2_filetrans_wildcard.xml` | FILE_TRANS with wildcard file paths (`*.DAT`, `*.CTL`, `*.*`) |
+| 3 | `test_case3_filetrans_filewatch.xml` | FILE_TRANS with `FTP-UPLOAD=3` (file watch mode) |
+| 4 | `test_case4_filewatch.xml` | `FileWatch` jobs → `PsrpOperator` polling (Windows remote) |
+| 5 | `test_case5_os_jobs.xml` | OS jobs → `SSHOperator` |
+| 6 | `test_case6_aws_stepfunction.xml` | AWS Step Function + S3 upload |
+
+Each case converts the XML via `claude --print` using `skill.md`, then syntax-verifies every generated DAG with `python <dag>.py` (exit code 0 required).
 
 ## Constraints 
 - Not save or use real company data to git.
