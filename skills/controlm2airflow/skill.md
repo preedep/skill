@@ -146,6 +146,7 @@ Apply these principles consistently across all generated scripts (bash, PowerShe
      ```
    - Add Task-level comment which use job configuration from Control-M job definition
    - Add Dependency comment which use job configuration from in/out condition Control-M job definition
+   - Add Schedule comment which use job configuration from Control-M job definition 
 
 3. **Build tasks:** For each job in the folder:
    - Derive task ID: `<app_id>-<app_code>-task_<job_name>-<period>` (lowercased)
