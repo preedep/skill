@@ -272,7 +272,7 @@ _dag_name = "##DAG_NAME##"
 ### Key rules
 - **Imports:** only import operators/sensors that are actually used in the DAG. 
   - `EmptyOperator` → `from airflow.providers.standard.operators.empty import EmptyOperator` (Airflow 3.x) — never from `airflow.operators.empty` (deprecated)
-  - `TriggerRule` → `from airflow.models.trigger_rule import TriggerRule` (Airflow 3.x) — **ONLY if** `AND_OR="O"` appears in any INCOND definition. Check all INCOND tags first; if none have `AND_OR="O"`, do NOT import. Never import from `airflow.utils.trigger_rule` (deprecated).
+  - `TriggerRule` → `from airflow.task.trigger_rule import TriggerRule` (Airflow 3.x) — **ONLY if** `AND_OR="O"` appears in any INCOND definition. Check all INCOND tags first; if none have `AND_OR="O"`, do NOT import. Never import from `airflow.utils.trigger_rule` (deprecated — redirects to `airflow.task.trigger_rule` with a warning) or `airflow.models.trigger_rule` (does not exist in Airflow 3.x).
   - `send_email` → `from airflow.utils.email import send_email` — **ONLY if** callbacks are enabled. Place the import **inside** the `if` guard, not at the top of the callback or at module level:
     ```python
     def success_callback(context):
@@ -520,6 +520,7 @@ pip install apache-airflow \
     apache-airflow-providers-microsoft-psrp \
     apache-airflow-providers-cncf-kubernetes \
     apache-airflow-providers-amazon \
+    apache-airflow-providers-standard \
     pendulum
 ```
 
@@ -615,8 +616,8 @@ Extract `FTP-*` variables from the Control-M job XML. For each active transfer s
    
    # Transfer 1: Upload
    $Output = & lftp -u "$RUser","$RPass" \
-       -e "set ftp:ssl-allow yes; cd /mnt/data/output/{{ ds_nodash }}/folder; \
-           put \"$LPath1\"; quit" \
+       -e "set ftp:ssl-allow yes; set ftp:ssl-force yes; cd /mnt/data/output/{{ ds_nodash }}/folder; \
+           put \"$LPath\"; quit" \
        "ftps://$RHost" 2>&1
    ```
    
@@ -638,25 +639,31 @@ RPATH="{{ FTP-RPATH{N} }}"
 RHOST="{{ FTP-RHOST }}"
 RUSER="{{ FTP-RUSER }}"
 RPASS="{{ var.value['FTP_RPASS_SECRET'] }}"
-PROTOCOL="{{ FTP-CONNTYPE2 }}"
+# Lowercase protocol for URI scheme — FTP→ftp, FTPS→ftps, SFTP→sftp
+PROTOCOL=$(echo "{{ FTP-CONNTYPE2 }}" | tr '[:upper:]' '[:lower:]')
 
 echo "[INFO] Starting {{ FTP-UPLOAD{N}=1 ? 'upload' : 'download' }}"
 echo "[INFO] Local: $LPATH"
 echo "[INFO] Remote: $RHOST:$RPATH"
 
+# Pre-compute remote dir/file outside lftp -e string to avoid nested substitution issues
+RDIR=$(dirname "$RPATH")
+RFILE=$(basename "$RPATH")
+
 if [ "{{ FTP-UPLOAD{N} }}" = "1" ]; then
     # Upload: local → remote
     lftp -u "$RUSER","$RPASS" \
         -e "set ftp:ssl-allow {{ FTP-CONNTYPE2=FTPS ? 'yes' : 'no' }}; \
+            {{ FTP-CONNTYPE2=FTPS ? 'set ftp:ssl-force yes;' : '' }} \
             set ftp:passive-mode {{ FTP-LPASSIVE }}; \
-            cd $(dirname "$RPATH"); \
-            put \"$LPATH\" -o \"$(basename \"$RPATH\")\"; \
+            cd \"$RDIR\"; put \"$LPATH\" -o \"$RFILE\"; \
             quit" \
         "$PROTOCOL://$RHOST"
 else
     # Download: remote → local
     lftp -u "$RUSER","$RPASS" \
         -e "set ftp:ssl-allow {{ FTP-CONNTYPE2=FTPS ? 'yes' : 'no' }}; \
+            {{ FTP-CONNTYPE2=FTPS ? 'set ftp:ssl-force yes;' : '' }} \
             set ftp:passive-mode {{ FTP-RPASSIVE }}; \
             get \"$RPATH\" -o \"$LPATH\"; \
             quit" \
@@ -670,10 +677,15 @@ BASH
 > **Mode:** `FTP-TYPE{N}=I` (binary) → no flags; `FTP-TYPE{N}=A` (ASCII) → add `-a` flag to `put`/`get`
 > **Passive mode:** `FTP-LPASSIVE=1` → `set ftp:passive-mode 1`; `FTP-RPASSIVE=1` → same on remote side
 > **Post-action:** If `FTP-SRCOPT{N}=1` (delete), append `rm "$LPATH"` after upload; if `FTP-DSTOPT{N}=1`, append `rm` on destination
-> **Wildcard paths:** If `FTP-LPATH{N}` or `FTP-RPATH{N}` contains `*` or `?`, switch:
-> - `put "$LPATH"` → `mput -O "$(dirname "$RPATH")" "$LPATH"`
-> - `get "$RPATH"` → `mget -O "$LPATH" "$RPATH"`
-> Do NOT use `get`/`put` with wildcard paths — lftp will not expand them.
+> **Wildcard paths:** If `FTP-LPATH{N}` or `FTP-RPATH{N}` contains `*` or `?`, pre-compute the remote directory and switch to `mput`/`mget`:
+> ```bash
+> RDIR=$(dirname "$RPATH")   # pre-compute outside lftp -e string
+> # Upload wildcard
+> lftp -u "$RUSER","$RPASS" -e "cd \"$RDIR\"; mput $LPATH; quit" "$PROTOCOL://$RHOST"
+> # Download wildcard
+> lftp -u "$RUSER","$RPASS" -e "mget -O \"$LPATH\" $RPATH; quit" "$PROTOCOL://$RHOST"
+> ```
+> Do NOT use `get`/`put` with wildcard paths — lftp will not expand them. Do NOT put `$(dirname ...)` inside the lftp `-e` string — it runs on the Airflow worker pod, not the remote host.
 
 ##### FILE_TRANS → Unix→S3 (aws s3 cp template)
 
@@ -764,7 +776,8 @@ BASH
 
 For Windows source (`FTP-LOSTYPE=Windows`), use `PsrpOperator` with PowerShell:
 
-```powershell
+```python
+powershell=r"""
 $ErrorActionPreference = 'Stop'
 
 $LPath = "{{ FTP-LPATH{N} }}"
@@ -775,31 +788,20 @@ $RPass = "{{ var.value['FTP_RPASS_SECRET'] }}"
 
 Write-Host "[INFO] Starting {{ FTP-UPLOAD{N}=1 ? 'upload' : 'download' }}"
 Write-Host "[INFO] Local: $LPath"
-Write-Host "[INFO] Remote: $RHost : $RPath"
+Write-Host "[INFO] Remote: ${RHost}:${RPath}"
 
-# For SFTP/FTP via lftp (if installed on Windows)
-# For native SMB, use Copy-Item with -Credential
-
-if ("{{ FTP-CONNTYPE2 }}" -eq "SFTP" -or "{{ FTP-CONNTYPE2 }}" -eq "FTP") {
-    $Credential = New-Object System.Management.Automation.PSCredential(
-        $RUser,
-        (ConvertTo-SecureString $RPass -AsPlainText -Force)
-    )
-    
-    if ("{{ FTP-UPLOAD{N} }}" -eq "1") {
-        # Upload: local → remote (e.g., via mapped SMB drive)
-        Copy-Item "$LPath" "\\$RHost\$RPath" -Force
-    } else {
-        # Download: remote → local
-        Copy-Item "\\$RHost\$RPath" "$LPath" -Force
-    }
-} else {
-    Write-Host "[ERROR] Unsupported protocol on Windows: {{ FTP-CONNTYPE2 }}"
+# Use lftp for FTP/FTPS/SFTP transfers from Windows agent
+$Output = & lftp -u "$RUser","$RPass" `
+    -e "set ftp:ssl-allow {{ FTP-CONNTYPE2=FTPS ? 'yes' : 'no' }}; {{ FTP-CONNTYPE2=FTPS ? 'set ftp:ssl-force yes;' : '' }} `
+        {{ FTP-UPLOAD{N}=1 ? 'put \"'+$LPath+'\" -o \"'+$RPath+'\";' : 'get \"'+$RPath+'\" -o \"'+$LPath+'\";' }} quit" `
+    "{{ FTP-CONNTYPE2 | lower }}://$RHost" 2>&1
+if ($LASTEXITCODE -ne 0) {
+    Write-Host "[ERROR] Transfer failed: $Output"
     exit 1
 }
 
 Write-Host "[INFO] Transfer complete"
-```
+"""
 
 #### FILE_TRANS → S3 Specific Rules (`FTP-CONNTYPE2=S3`)
 - Operator: `SSHOperator` on `FTP-LHOST` (local agent, e.g. `"dunlop"`)
@@ -865,6 +867,7 @@ FileWatch monitors filesystem for file events (creation, deletion, modification)
 >     ssh_conn_id='ssh_<nodeid>',
 >     command=r"""bash -s << 'BASH'
 > set -euo pipefail
+> trap 'echo "[ERROR] Polling script failed at line $LINENO"' ERR
 > FILE_PATTERN="<FileWatch-FILE_PATH with %% variables substituted>"
 > TIMEOUT=<TIME_LIMIT × 60>
 > POLL=<INT_FILE_SEARCHES>
