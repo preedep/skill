@@ -536,9 +536,18 @@ pip install apache-airflow \
 Extract `FTP-*` variables from the Control-M job XML. For each active transfer slot (N = 1 to `FTP-TRANSFER_NUM`):
 
 1. **Check `FTP-UPLOAD{N}` value:**
-   - `3` → File Watcher (skip entirely — produce no transfer command)
    - `1` → Upload: local `FTP-LPATH{N}` → remote `FTP-RPATH{N}`
    - `0` → Download: remote `FTP-RPATH{N}` → local `FTP-LPATH{N}`
+   - `3` → **File Watcher** — do NOT generate a transfer command. Instead generate a sensor/operator to wait for the file at `FTP-LPATH{N}` to appear, then proceed. Use this decision tree based on `NODEID` (look up OS from **Node ID Information** table):
+
+     | NODEID OS | File path prefix | Sensor / Operator | Notes |
+     |-----------|-----------------|-------------------|-------|
+     | Unix/Linux | `/path/` (no wildcard) | `SFTPSensor` | `sftp_conn_id="ssh_<nodeid>"`, `path=FTP-LPATH{N}`, `mode='reschedule'`, `timeout=FTP-TIMELIMIT{N}×60`, `poke_interval=FTP-WATCH_INTERVAL{N}` |
+     | Unix/Linux | `/path/*` or `?` (wildcard) | `SSHOperator` polling | SFTPSensor does not support globs — use `SSHOperator` with `ls` polling loop (see SFTPSensor Wildcard Restriction rule) |
+     | AWS S3 (`FTP-CONNTYPE2=S3`) | `s3://` or S3 bucket path | `S3KeySensor` | `bucket_key=FTP-LPATH{N}`, `wildcard_match=True` if path contains `*`/`?` |
+     | Windows (from table) | `D:\`, `S:\`, etc. | `PsrpOperator` polling | PowerShell `Test-Path` loop — same pattern as FileWatch Windows jobs (see Remote Windows FileWatch section) |
+
+     After the sensor/operator completes (file found), the actual lftp/aws upload defined by `FTP-RPATH{N}` and `FTP-CONNTYPE2` follows as a **separate downstream task** wired with `>>`. Do not merge watch and transfer into a single task.
 
 2. **Determine protocol from `FTP-CONNTYPE1` / `FTP-CONNTYPE2`:**
    - `LOCAL` + `SFTP/FTP/FTPS` → use `lftp` (Unix agent)
