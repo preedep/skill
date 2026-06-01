@@ -239,15 +239,15 @@ Follow the company DAG (focus on Airflow 3.x) templates — see [`templates/`](t
 1. **Header comment** — Control-M source documentation (DAG ID, folder, jobs, skill version)
 2. Imports (`pendulum`, `send_email`, `logging`)
 3. Logging setup (`smtplib`, `airflow.utils.email` → DEBUG)
-4. Variables zone — all config as module-level `_` prefixed variables
+4. Variables zone — all config as module-level `_` prefixed variables 
 
 ```Example
 _company = "##COMPANY##"
 _project = "##PROJECT##"
 _env = "##ENV##"
 _dag_name = "##DAG_NAME##"
+...
 ```
-
 4. `success_callback` / `failure_callback` using `send_email` + `pendulum.now('Asia/Bangkok')`
 5. `local_tz`, `default_args`, `dag = DAG(...)`
 6. Tasks (grouped by section with `####` banners)
@@ -909,8 +909,8 @@ When NODEID maps to Windows OS (refer to `Node ID Information` table) and FILE_P
     powershell=r"""
 $ErrorActionPreference = 'Stop'
 $FilePath = "<FileWatch-FILE_PATH with %%ODATE replaced by {{ ds_nodash }}>"
-$TimeoutSec = <TIME_LIMIT in seconds>
-$PollSec = <TIME_LIMIT / NUM_OF_ITERATIONS>
+$TimeoutSec = <TIME_LIMIT × 60>
+$PollSec = <INT_FILE_SEARCHES>
 $Elapsed = 0
 Write-Host "[INFO] Waiting for file: $FilePath"
 while (-not (Test-Path $FilePath)) {
@@ -1091,3 +1091,4 @@ For each `INCOND` on a job, apply this decision tree:
 | `Glory` | `Windows` |
 | `Dunlop` | `Linux` |
 | `Donut` | `Linux` |
+| `obms-ir-prod` | `Windows` |
