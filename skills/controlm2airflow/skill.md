@@ -204,10 +204,19 @@ Apply these principles consistently across all generated scripts (bash, PowerShe
 | `DAYS` | `ALL` + folder suffix `_DAILY` | `"<MM> <HH> * * *"` from `TIMEFROM` |
 | `DAYS` | `ALL` + folder suffix `_WEEKLY` | `"<MM> <HH> * * 0"` (Sunday) |
 | `DAYS` | `ALL` + folder suffix `_MONTHLY` | `"<MM> <HH> 1 * *"` (1st of month) |
-| `CYCLIC=1` + `INTERVAL` | e.g. `00060M` | `"@hourly"` or derive cron from minutes |
+| `CYCLIC=1` + `INTERVAL` (any job in folder) | e.g. `00015M` | `timedelta(minutes=15)` — use `timedelta`, not cron |
+| `CYCLIC=1` + `INTERVAL=00060M` | 60 minutes | `timedelta(hours=1)` |
+| `CYCLIC=1` + `INTERVAL=00000M` | immediate (downstream job) | inherit schedule from the cyclic entry-point job; do not set a separate schedule |
+
+**CYCLIC INTERVAL parsing:** format is `NNNNNu` where `u` = `M` (minutes) or `H` (hours).
+- Extract numeric value: `00015M` → 15 minutes → `schedule=timedelta(minutes=15)`
+- `00060M` → 60 min → `schedule=timedelta(hours=1)` (simplify when evenly divisible)
+- `00000M` → 0 (downstream job, no independent schedule) → inherit from folder entry point
+- `TIMEFROM` on a cyclic job sets the **first run time** — document as `start_date` with that time, not as a cron schedule
+- `CYCLIC_TYPE=C` (completion-to-start) vs `CYCLIC_TYPE=S` (fixed interval) — document in DAG header comment; Airflow `timedelta` schedule approximates `CYCLIC_TYPE=S` (fixed); emit `# NOTE: original CYCLIC_TYPE=C (completion-to-start) — Airflow timedelta is fixed-interval` if type is C
 
 > Default: if no schedule can be derived, use `schedule=None` and emit `# TODO: set schedule` comment.
-> `TIMEFROM` format is `HHMM` — convert to cron as `MM HH * * *`.
+> `TIMEFROM` format is `HHMM` — convert to cron as `MM HH * * *` for non-cyclic jobs.
 > If the schedule involves non-standard dates (banking holidays, special calendars — indicated by `DAYSCAL` or `CONFCAL` attributes), use `schedule=None` and emit `# TODO: implement custom Timetable` instead of a cron string.
 
 
@@ -1092,3 +1101,4 @@ For each `INCOND` on a job, apply this decision tree:
 | `Dunlop` | `Linux` |
 | `Donut` | `Linux` |
 | `obms-ir-prod` | `Windows` |
+| `ultrasone` | `Linux` |
