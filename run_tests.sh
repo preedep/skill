@@ -112,7 +112,8 @@ get_params() {
         test_case4*) echo "AP1004:edw"    ;;
         test_case5*) echo "AP1005:clr"    ;;
         test_case6*) echo "AP1006:nss"    ;;
-        *)           echo "AP9999:app"    ;;
+        test_case7*) echo "AP1007:rbf"   ;;
+        *)           echo "AP9999:app"   ;;
     esac
 }
 

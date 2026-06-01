@@ -70,6 +70,7 @@ Test inputs live in `input/test_case*.xml` (gitignored). Run all cases:
 | 4 | `test_case4_filewatch.xml` | `FileWatch` jobs → `PsrpOperator` polling (Windows remote) |
 | 5 | `test_case5_os_jobs.xml` | OS jobs → `SSHOperator` |
 | 6 | `test_case6_aws_stepfunction.xml` | AWS Step Function + S3 upload |
+| 7 | `test_case7_filetrans_ftpssl.xml` | FILE_TRANS FTP-SSL: wildcard upload, mixed download/upload, PRECOMM mkdir, SRCOPT delete-source, %%D day-of-week variable |
 
 Each case converts the XML via `claude --print` using `skill.md`, then syntax-verifies every generated DAG with `python <dag>.py` (exit code 0 required).
 
