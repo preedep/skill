@@ -943,11 +943,10 @@ arn:aws:states:<region>:<account_id>:stateMachine:<AWS-STEP_NAME>
 ```python
 from airflow.providers.amazon.aws.operators.step_function import StepFunctionStartExecutionOperator
 from airflow.providers.amazon.aws.sensors.step_function import StepFunctionExecutionSensor
-import json
 
-start_step = StepFunctionStartExecutionOperator(
-    task_id="start_step_function",
-    aws_conn_id="aws_nssctrlm",
+<appid>_<appcode>_task_<jobname>_<period> = StepFunctionStartExecutionOperator(
+    task_id="<appid>-<appcode>-task_<jobname>-<period>",
+    aws_conn_id="aws_<aws_account>",
     state_machine_arn=(
         "arn:aws:states:ap-southeast-1:"
         "ACCOUNT_ID_PLACEHOLDER:"
@@ -955,20 +954,25 @@ start_step = StepFunctionStartExecutionOperator(
         "<AWS-STEP_NAME>"
     ),
     name="<AWS-STEP_EXECUTION_NAME>-{{ ts_nodash }}",
-    input=json.dumps({ ... }),  # from AWS-STEP_PAYLOAD_JSON-N001-VALUE
+    state_machine_input='{ ... }',  # from AWS-STEP_PAYLOAD_JSON-N001-VALUE — unescape &quot;→" and %4E→\n
+    on_failure_callback=failure_callback,
 )
 
-wait_for_finish = StepFunctionExecutionSensor(
-    task_id="wait_for_finish",
-    aws_conn_id="aws_nssctrlm",
-    execution_arn="{{ ti.xcom_pull(task_ids='start_step_function') }}",
+<appid>_<appcode>_task_<jobname>_wait_<period> = StepFunctionExecutionSensor(
+    task_id="<appid>-<appcode>-task_<jobname>_wait-<period>",
+    aws_conn_id="aws_<aws_account>",
+    execution_arn="{{ ti.xcom_pull(task_ids='<appid>-<appcode>-task_<jobname>-<period>') }}",
     poke_interval=30,
     timeout=3600,
     mode="reschedule",
+    on_failure_callback=failure_callback,
 )
 
-start_step >> wait_for_finish
+<appid>_<appcode>_task_<jobname>_<period> >> <appid>_<appcode>_task_<jobname>_wait_<period>
 ```
+
+> **`state_machine_input`** (not `input`) is the correct parameter for `StepFunctionStartExecutionOperator`. Pass the payload as a plain string — Airflow renders Jinja inside it at task execution time. Do NOT use `json.dumps()` with Jinja expressions — `json.dumps()` runs at DAG parse time and produces a literal string containing the Jinja template tags, which is correct here, but it adds unnecessary complexity and escaping risk. Build the payload string directly.
+> **`import json`** is not needed — omit it unless other code in the DAG uses it.
 
 
 ## Dependency Mapping — INCOND/OUTCOND Pattern Reference
