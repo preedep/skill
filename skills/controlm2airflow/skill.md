@@ -239,19 +239,19 @@ Follow the company DAG (focus on Airflow 3.x) templates — see [`templates/`](t
 1. **Header comment** — Control-M source documentation (DAG ID, folder, jobs, skill version)
 2. Imports (`pendulum`, `send_email`, `logging`)
 3. Logging setup (`smtplib`, `airflow.utils.email` → DEBUG)
-4. Variables zone — all config as module-level `_` prefixed variables 
+4. Variables zone — all config as module-level `_` prefixed variables
 
 ```Example
 _company = "##COMPANY##"
 _project = "##PROJECT##"
 _env = "##ENV##"
 _dag_name = "##DAG_NAME##"
-...
 ```
-4. `success_callback` / `failure_callback` using `send_email` + `pendulum.now('Asia/Bangkok')`
-5. `local_tz`, `default_args`, `dag = DAG(...)`
-6. Tasks (grouped by section with `####` banners)
-7. Dependencies
+
+5. `success_callback` / `failure_callback` using `send_email` + `pendulum.now('Asia/Bangkok')`
+6. `local_tz`, `default_args`, `dag = DAG(...)`
+7. Tasks (grouped by section with `####` banners)
+8. Dependencies
 
 ### Key rules
 - **Imports:** only import operators/sensors that are actually used in the DAG. 
