@@ -212,9 +212,19 @@ Apply these principles consistently across all generated scripts (bash, PowerShe
 
 
 ## Constraints & Assumptions
+
+### Airflow Cluster Architecture
+- **Airflow version:** 3.x
+- **Executor:** KubernetesExecutor — each task runs in an isolated worker pod on Kubernetes
+- **Worker pods have no access to on-premise file systems** — never transfer files through the Airflow worker pod
+- All file transfers must execute on the **remote agent host** via `SSHOperator` or `PsrpOperator` — the operator runs a script on the remote host, which then performs the transfer locally on that host
+- `FileSensor` is **never valid** for remote files — it only works for files on the Airflow worker pod's own local filesystem (which has no on-premise mounts)
+- This reinforces the operator selection rules: always use `SSHOperator`/`PsrpOperator`/`SFTPSensor`/`S3KeySensor` to reach remote files, never assume the worker pod can access them directly
+
+### General
 - One Control-M folder = one DAG file
 - All Airflow operators/sensors must not be deprecated
-- *Sensor* for priority selection => derferable mode -> reschedule -> poke
+- *Sensor* for priority selection => deferrable mode → reschedule → poke
 - Unsupported job types emit a `# TODO:` comment in the output and log a warning
 - All identifiers lowercased
 - Target: Airflow 3.x with classic operators (no Taskflow API)
