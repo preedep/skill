@@ -1,8 +1,15 @@
 #!/usr/bin/env bash
-# run_tests.sh — run controlm2airflow skill on all input/*.xml files
+# run_tests.sh — run controlm2airflow skill on input XML files
+#
 # Usage:
-#   ./run_tests.sh                        # run all input/*.xml
-#   ./run_tests.sh input/test_case1.xml   # run specific file(s)
+#   ./run_tests.sh                          # run all input/test_case*.xml
+#   ./run_tests.sh input/test_case1.xml     # run specific file(s) by path
+#   ./run_tests.sh --scenario wildcard      # run files matching keyword(s)
+#   ./run_tests.sh --scenario filewatch aws # run files matching any keyword
+#   ./run_tests.sh --list                   # list available scenarios
+#
+# Scenario keywords match against the input filename (case-insensitive substring).
+# Examples: prepost, wildcard, filewatch, os, aws
 #
 # Output: output/<basename_without_ext>/  per input file (preserved across runs)
 # Logs:   logs/run_tests_<timestamp>.log  + logs/<basename>_<timestamp>.log per case
@@ -28,11 +35,61 @@ pass() { log "${GREEN}[PASS]${NC} $*"; }
 fail() { log "${RED}[FAIL]${NC} $*"; }
 info() { log "${YELLOW}[INFO]${NC} $*"; }
 
-# build list of input files to process
-if [ $# -gt 0 ]; then
-    INPUT_FILES=("$@")
+usage() {
+    # print header comment block (lines 2-16, strip leading '# ')
+    sed -n '2,16p' "$0" | sed 's/^# \{0,1\}//'
+    echo ""
+    echo "Available scenarios (input/test_case*.xml):"
+    for f in "${INPUT_DIR}"/test_case*.xml; do
+        [ -f "${f}" ] && echo "  $(basename "${f}" .xml)"
+    done
+}
+
+# parse arguments
+SCENARIOS=()
+INPUT_FILES=()
+
+while [ $# -gt 0 ]; do
+    case "$1" in
+        --list|-l)
+            usage; exit 0 ;;
+        --scenario|-s)
+            shift
+            while [ $# -gt 0 ] && [[ "$1" != --* ]]; do
+                SCENARIOS+=("$1"); shift
+            done ;;
+        --help|-h)
+            usage; exit 0 ;;
+        *.xml)
+            INPUT_FILES+=("$1"); shift ;;
+        *)
+            # treat bare word as a scenario keyword
+            SCENARIOS+=("$1"); shift ;;
+    esac
+done
+
+# resolve final file list
+if [ ${#INPUT_FILES[@]} -gt 0 ]; then
+    : # explicit paths — use as-is
+elif [ ${#SCENARIOS[@]} -gt 0 ]; then
+    # filter test_case*.xml by scenario keyword(s)
+    for f in "${INPUT_DIR}"/test_case*.xml; do
+        [ -f "${f}" ] || continue
+        base="$(basename "${f}" .xml)"
+        for kw in "${SCENARIOS[@]}"; do
+            if echo "${base}" | grep -qi "${kw}"; then
+                INPUT_FILES+=("${f}")
+                break
+            fi
+        done
+    done
+    if [ ${#INPUT_FILES[@]} -eq 0 ]; then
+        echo "No input files matched scenario(s): ${SCENARIOS[*]}"
+        echo "Run './run_tests.sh --list' to see available scenarios."
+        exit 1
+    fi
 else
-    INPUT_FILES=("${INPUT_DIR}"/*.xml)
+    INPUT_FILES=("${INPUT_DIR}"/test_case*.xml)
 fi
 
 if [ ${#INPUT_FILES[@]} -eq 0 ] || [ ! -f "${INPUT_FILES[0]}" ]; then
@@ -45,23 +102,19 @@ COMPANY="scb"
 APP_CODE="app"
 ENV="dev"
 
-# per-file param overrides keyed by filename prefix
-declare -A APP_IDS=(
-    ["test_case1"]="AP1001"
-    ["test_case2"]="AP1002"
-    ["test_case3"]="AP1003"
-    ["test_case4"]="AP1004"
-    ["test_case5"]="AP1005"
-    ["test_case6"]="AP1006"
-)
-declare -A APP_CODES=(
-    ["test_case1"]="erp"
-    ["test_case2"]="expinv"
-    ["test_case3"]="als"
-    ["test_case4"]="edw"
-    ["test_case5"]="clr"
-    ["test_case6"]="nss"
-)
+# per-file param lookup (prefix → app_id:app_code)
+get_params() {
+    local base="$1"
+    case "${base}" in
+        test_case1*) echo "AP1001:erp"    ;;
+        test_case2*) echo "AP1002:expinv" ;;
+        test_case3*) echo "AP1003:als"    ;;
+        test_case4*) echo "AP1004:edw"    ;;
+        test_case5*) echo "AP1005:clr"    ;;
+        test_case6*) echo "AP1006:nss"    ;;
+        *)           echo "AP9999:app"    ;;
+    esac
+}
 
 TOTAL=0
 PASSED=0
@@ -82,16 +135,10 @@ for input_path in "${INPUT_FILES[@]}"; do
     CASE_LOG="${LOG_DIR}/${base}_${TIMESTAMP}.log"
     CASE_OUTPUT="${OUTPUT_BASE}/${base}"
 
-    # resolve per-file params — match longest prefix key
-    app_id="AP$(printf '%04d' "${IDX}")"
-    app_code="${APP_CODE}"
-    for key in "${!APP_IDS[@]}"; do
-        if [[ "${base}" == "${key}"* ]]; then
-            app_id="${APP_IDS[${key}]}"
-            app_code="${APP_CODES[${key}]}"
-            break
-        fi
-    done
+    # resolve per-file params
+    params="$(get_params "${base}")"
+    app_id="${params%%:*}"
+    app_code="${params##*:}"
 
     TOTAL=$((TOTAL + 1))
 
@@ -115,8 +162,7 @@ for input_path in "${INPUT_FILES[@]}"; do
 
     # run skill via claude
     info "Running claude skill..."
-    claude --print --allowedTools "Read,Write,Bash" 2>&1 | tee "${CASE_LOG}" << EOF
-Follow the skill defined in skills/controlm2airflow/skill.md to convert Control-M jobs to Airflow DAGs.
+    PROMPT="Follow the skill defined in skills/controlm2airflow/skill.md to convert Control-M jobs to Airflow DAGs.
 
 Input XML: ${input_path}
 Output directory: ${CASE_OUTPUT}/
@@ -125,8 +171,9 @@ Parameters:
 company  = ${COMPANY}
 app_id   = ${app_id}
 app_code = ${app_code}
-env      = ${ENV}
-EOF
+env      = ${ENV}"
+
+    echo "${PROMPT}" | claude --print --allowedTools "Read,Write,Bash" 2>&1 | tee "${CASE_LOG}"
 
     # check output was generated
     dag_files=("${CASE_OUTPUT}"/*.py)
