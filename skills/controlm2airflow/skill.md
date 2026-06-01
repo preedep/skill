@@ -250,10 +250,11 @@ Follow the company DAG (focus on Airflow 3.x) templates — see [`templates/`](t
 3. Logging setup — **always include both lines**, separated by a `###################### logging ######################` banner:
    ```python
    ###################### logging ######################
-   import smtplib  # (already imported above or add here)
+   import smtplib
    logging.getLogger("smtplib").setLevel(logging.DEBUG)
    logging.getLogger("airflow.utils.email").setLevel(logging.DEBUG)
    ```
+   **Critical:** `import smtplib` must appear **inside** this logging section (immediately after the `####` banner), never in the top-level imports block (step 2). Do NOT move it up with the other imports — its placement here is intentional and required.
 4. Variables zone — all config as module-level `_` prefixed variables, preceded by a `###################### variables zone ######################` banner:
 
 ```Example
@@ -270,8 +271,8 @@ _dag_name = "##DAG_NAME##"
 8. Dependencies
 
 ### Key rules
-- **Imports:** only import operators/sensors that are actually used in the DAG. 
-  - `EmptyOperator` → `from airflow.providers.standard.operators.empty import EmptyOperator` (Airflow 3.x) — never from `airflow.operators.empty` (deprecated)
+- **Imports:** only import operators/sensors that are actually used in the DAG. **Before writing any import, verify that at least one task in the generated DAG actually instantiates that operator/sensor class.** If no task uses it, do not import it — unused imports are a code smell and must not appear in generated output.
+  - `EmptyOperator` → `from airflow.providers.standard.operators.empty import EmptyOperator` (Airflow 3.x) — never from `airflow.operators.empty` (deprecated). **Only import if the DAG contains at least one `EmptyOperator(...)` task instance.**
   - `TriggerRule` → `from airflow.task.trigger_rule import TriggerRule` (Airflow 3.x) — **ONLY if** `AND_OR="O"` appears in any INCOND definition. Check all INCOND tags first; if none have `AND_OR="O"`, do NOT import. Never import from `airflow.utils.trigger_rule` (deprecated — redirects to `airflow.task.trigger_rule` with a warning) or `airflow.models.trigger_rule` (does not exist in Airflow 3.x).
   - `send_email` → `from airflow.utils.email import send_email` — **ONLY if** callbacks are enabled. Place the import **inside** the `if` guard, not at the top of the callback or at module level:
     ```python
