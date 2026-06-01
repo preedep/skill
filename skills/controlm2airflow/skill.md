@@ -826,18 +826,18 @@ FileWatch monitors filesystem for file events (creation, deletion, modification)
 
 | FILE_PATH Pattern | NODEID OS (from table) | File Location | Operator/Sensor | Notes |
 |-------------------|----------------------|---------------|-----------------|-------|
-| Relative or local | Any | Airflow worker local | `FileSensor` | Works only for local files on worker |
-| `S:\`, `D:\`, `C:\` (Windows drive) | Windows (from table) | Remote Windows SMB | `PsrpOperator` | PowerShell polling script required |
-| `/path/` (Unix path) | Unix/Linux (from table) | Remote Unix SFTP | `SFTPSensor` | Native SFTP sensor support |
-| `/path/` (Unix path) | Unix/Linux (from table) | Remote Unix FTPS | `SSHOperator` custom | Custom `lftp ls` polling (emit TODO) |
-| AWS S3 path | Any | S3 bucket | `S3KeySensor` | AWS provider required |
+| `S:\`, `D:\`, `C:\` (Windows drive) | Windows (from table) | Remote Windows SMB | `PsrpOperator` | PowerShell `Test-Path` polling |
+| `/path/` (Unix path, no wildcard) | Unix/Linux (from table) | Remote Unix SFTP | `SFTPSensor` | `mode='reschedule'`, `sftp_conn_id="ssh_<nodeid>"` |
+| `/path/*` or `?` (Unix wildcard) | Unix/Linux (from table) | Remote Unix | `SSHOperator` polling | SFTPSensor has no glob support — use `ls` loop |
+| AWS S3 path | Any | S3 bucket | `S3KeySensor` | `wildcard_match=True` if path has `*`/`?` |
 
-> **Critical Rule — FileSensor Restriction:**
-> `FileSensor` **only works for files on the Airflow worker's own local filesystem.** Never use `FileSensor` for:
-> - Remote Windows paths (`S:\`, `D:\`, etc.) on Windows NODEID — use `PsrpOperator`
-> - Remote Unix paths (`/data/...`) on Unix NODEID — use `SFTPSensor` or `SSHOperator`
->
-> **The Airflow worker cannot directly access remote filesystems without an operator.**
+> **Critical Rule — FileSensor is NEVER valid for Control-M FileWatch migrations:**
+> Under KubernetesExecutor, each task runs in an isolated worker pod with no on-premise filesystem mounts. A "local" or "relative" path in a Control-M FileWatch job refers to a path on the **on-premise agent host (NODEID)** — which is always remote from the worker pod.
+> `FileSensor` is therefore **never a valid output** for any Control-M FileWatch job migration. Always use:
+> - Windows NODEID → `PsrpOperator` (PowerShell `Test-Path` polling)
+> - Unix/Linux NODEID, exact path → `SFTPSensor`
+> - Unix/Linux NODEID, wildcard path → `SSHOperator` polling
+> - S3 path → `S3KeySensor`
 
 > **Critical Rule — SFTPSensor Wildcard Restriction:**
 > `SFTPSensor.path` uses `SFTP.stat()` internally — exact path lookup only, no glob expansion. A wildcard path (`*`, `?`) will never match.
