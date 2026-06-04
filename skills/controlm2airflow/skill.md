@@ -142,7 +142,7 @@ Apply these principles consistently across all generated scripts (bash, PowerShe
      # Apache Airflow DAG: <dag_id>
      # Converted from Control-M folder: <folder_name>
      # Converted from Control-M job: <job_name> (use command if more than one job in folder)
-     # Converted by Control-M 2 Airflow Skill
+     # Converted by Control-M 2 Airflow Skill (Developed by NiX)
      ```
    - Add Task-level comment which use job configuration from Control-M job definition
    - Add Dependency comment which use job configuration from in/out condition Control-M job definition
@@ -154,7 +154,20 @@ Apply these principles consistently across all generated scripts (bash, PowerShe
    - Select operator based on job type using **Control-M Appl_Type Mapping** table
    - Apply SLA if defined → convert to `DeadlineAlert` (Airflow 3.x)
    - Wire `on_failure_callback` to standard alert hook
-   - **Extract all Control-M variables** (`%%ODATE`, `%%PREV`, etc.) and translate to Airflow Jinja using **Variable Substitution Reference**; declare as **module-level variables** at the top of the DAG file (not hardcoded in task code)
+   - **Extract all Control-M variables** (`%%ODATE`, `%%PREV`, etc.) and translate to Airflow Jinja using **Variable Substitution Reference**; declare every extracted value as a `_`-prefixed **module-level (global) variable** in the variables zone. Shell scripts and PowerShell scripts must reference these globals by injecting them via an f-string (`f"""..."""`) — **not** a raw string (`r"""..."""`) — so Python interpolates the values at DAG load time. Example:
+     ```python
+     # variables zone
+     _lpath = "/data/input/file_{{ ds_nodash }}.txt"
+     _rhost = "dunlop"
+
+     # task
+     command=f"""bash -s << 'BASH'
+     set -euo pipefail
+     LPATH="{_lpath}"
+     RHOST="{_rhost}"
+     BASH"""
+     ```
+     > Windows paths in f-strings: use forward slashes or double-backslashes (`\\`) since f-strings interpret backslashes — e.g. `_lpath = "D:\\app\\file.txt"` or `_lpath = "D:/app/file.txt"`.
    - Add task-level comment documenting Control-M source and conditions:
      ```python
      # Control-M job: <job_name>
@@ -293,7 +306,7 @@ _dag_name = "##DAG_NAME##"
 - DAG-level callbacks: `on_success_callback=success_callback if _enable_email_notification_success else None` and `on_failure_callback=failure_callback if _enable_email_notification_fail else None`
 - **`dag=dag` is removed in Airflow 3.x** — do not pass `dag=dag` as a keyword argument to any operator or sensor. Declare all tasks inside a `with DAG(...) as dag:` context manager instead.
 - **`# RUN_AS` comment:** always write the actual RUN_AS username from the Control-M job (e.g. `# RUN_AS: ctrlm`) — never use a placeholder like `# RUN_AS comment`.
-- **Module-level variables — only declare what is actually referenced:** Only declare a `_`-prefixed module-level variable when it is referenced by the operator/sensor parameter directly (e.g. `ssh_conn_id=_ssh_conn_id`) or via Airflow Jinja in a templated field. Do NOT declare module-level path variables (`_lpath`, `_rpath`, etc.) when the value is only used inside a `command=r"""..."""` or `powershell=r"""..."""` raw string body — raw strings cannot reference Python variables. In those cases, embed the substituted value directly in the script string. Declaring a variable that is never referenced is dead code.
+- **Module-level variables — declare all extracted Control-M values as globals:** Every path, host, user, and translated `%%` variable extracted from Control-M must be declared as a `_`-prefixed module-level variable in the variables zone. Scripts reference these globals by using an f-string (`f"""..."""`) for the `command=` or `powershell=` argument — never embed values directly in the script body. For Windows paths inside f-strings use double-backslashes (`\\`) or forward slashes to avoid backslash interpretation.
 
 ### Shell Script Guidelines
 
@@ -309,16 +322,18 @@ Use for shell scripts embedded in SSHOperator tasks.
 
 #### Script Format
 
-Embed shell scripts as Python raw triple-quoted strings. **Do not rely on a shebang line** — SSHOperator passes the script content to the remote shell's stdin/exec; a `#!/usr/bin/env bash` line is treated as a comment and does not select the interpreter. To guarantee bash execution, wrap the entire script body with `bash -s` or use a heredoc invocation:
+Embed shell scripts as Python f-string triple-quoted strings so that module-level globals can be interpolated. **Do not rely on a shebang line** — SSHOperator passes the script content to the remote shell's stdin/exec; a `#!/usr/bin/env bash` line is treated as a comment and does not select the interpreter. To guarantee bash execution, wrap the entire script body with `bash -s` or use a heredoc invocation:
 
 ```python
-command=r"""bash -s << 'BASH'
+command=f"""bash -s << 'BASH'
 set -euo pipefail
+LPATH="{_lpath}"
+RHOST="{_rhost}"
 # ... script body ...
 BASH"""
 ```
 
-> Backslashes inside `r"""..."""` are literal — do not escape them further.
+> Use `f"""..."""` (not `r"""..."""`) so Python interpolates `_`-prefixed globals. Backslashes in Linux paths are not an issue; for any literal backslash needed in the script body use `\\`.
 
 #### Airflow Scheduling Semantics
 
@@ -429,15 +444,18 @@ Use for PowerShell scripts embedded in PsrpOperator tasks.
 
 #### Script Format
 
-Use raw multiline string to avoid backslash interpretation in Windows paths:
+Use an f-string triple-quoted string so that module-level globals can be interpolated into the script:
 
 ```python
-powershell = r"""
-...
+powershell=f"""
+$ErrorActionPreference = 'Stop'
+$LPath = "{_lpath}"
+$RHost = "{_rhost}"
+# ... script body ...
 """
 ```
 
-> Backslashes inside `r"""..."""` are literal — do not escape them further. Step 6's "ensure backslashes are escaped" rule does **not** apply inside an r-string; the r-prefix is the correct and sufficient form.
+> Use `f"""..."""` (not `r"""..."""`) so Python interpolates `_`-prefixed globals. For Windows paths with backslashes, declare the global using double-backslashes or forward slashes (e.g. `_lpath = "D:\\\\app\\\\file.txt"` or `"D:/app/file.txt"`) so the interpolated value is correct inside the PowerShell script.
 
 #### Airflow Scheduling Semantics
 
