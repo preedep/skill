@@ -1107,6 +1107,8 @@ For each `INCOND` on a job, apply this decision tree:
 
 ## Node ID Information
 
-OS per node is maintained in [`raws/node_id.md`](raws/node_id.md).
-Look up the `NODEID` value (case-insensitive) in that file to determine the agent OS (`Windows` or `Linux`).
-If the NODEID is not listed, leave OS undetermined and default to `SSHOperator` (Linux path).
+To determine the OS for a given `NODEID`:
+
+1. Look up the `NODEID` value (case-insensitive) in [`raws/node_id_win.md`](raws/node_id_win.md).
+2. If found → OS is **Windows** → use `PsrpOperator`.
+3. If not found → OS is **Linux** (default) → use `SSHOperator`.
