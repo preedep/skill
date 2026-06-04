@@ -529,7 +529,7 @@ pip install apache-airflow \
 
 
 ## Reference
-- [`controlm-schema.xsd`](controlm-schema.xsd) — official Control-M XML schema (DEFTABLE, FOLDER, SMART_FOLDER, JOB, INCOND, OUTCOND, VARIABLE, etc.)
+- [`controlm-schema.xsd`](raws/controlm-schema.xsd) — official Control-M XML schema (DEFTABLE, FOLDER, SMART_FOLDER, JOB, INCOND, OUTCOND, VARIABLE, etc.)
 - [`templates/`](templates/) — company Airflow DAG templates; read the relevant template when generating a task for a specific job type
 
 > **When to consult the schema:** Only read this file when the input XML contains an unfamiliar element or attribute, when validating which child elements are valid inside a given container (e.g. `SMART_FOLDER` vs `FOLDER` vs `SUB_FOLDER`), or when resolving an edge case not covered by the Behavior or Constraints sections above. For standard `FOLDER`/`JOB` inputs, the schema is not needed.
@@ -1106,10 +1106,7 @@ For each `INCOND` on a job, apply this decision tree:
 3. If `AND_OR="O"` with multiple INCONDs → use `trigger_rule=TriggerRule.ONE_SUCCESS` instead of the default `ALL_SUCCESS`
 
 ## Node ID Information
-| Node ID | OS |
-|---------|----------------|
-| `Glory` | `Windows` |
-| `Dunlop` | `Linux` |
-| `Donut` | `Linux` |
-| `obms-ir-prod` | `Windows` |
-| `ultrasone` | `Linux` |
+
+OS per node is maintained in [`raws/node_id.md`](raws/node_id.md).
+Look up the `NODEID` value (case-insensitive) in that file to determine the agent OS (`Windows` or `Linux`).
+If the NODEID is not listed, leave OS undetermined and default to `SSHOperator` (Linux path).

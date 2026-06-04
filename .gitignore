@@ -29,6 +29,7 @@ upload_example.sh
 .idea/
 skills/*/templates/
 skills/*/research/
+skills/*/raws/
 .venv/
 logs/
 .DS_Store

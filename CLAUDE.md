@@ -18,7 +18,11 @@ skill/
 └── skills/               # individual skill implementations
     ├── controlm2airflow/ # Convert Control-M jobs to Apache Airflow DAGs
     │   ├── skill.md
-    │   └── controlm-schema.xsd
+    │   ├── raws/         # reference data (gitignored — no real data)
+    │   │   ├── controlm-schema.xsd
+    │   │   ├── neutron_export_xml_260522.xml
+    │   │   └── node_id.md
+    │   └── templates/    # DAG/config/groovy templates per operator type
     └── <skill-name>/     # (future skills follow the same pattern)
         ├── skill.md      # skill definition: purpose, inputs, outputs, examples
         └── ...           # supporting assets or code
