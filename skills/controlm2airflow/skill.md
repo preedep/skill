@@ -255,6 +255,7 @@ Follow the company DAG (focus on Airflow 3.x) templates — see [`templates/`](t
    logging.getLogger("airflow.utils.email").setLevel(logging.DEBUG)
    ```
    **Critical:** `import smtplib` must appear **inside** this logging section (immediately after the `####` banner), never in the top-level imports block (step 2). Do NOT move it up with the other imports — its placement here is intentional and required.
+   > **Violation to avoid:** Do NOT write `import smtplib` in step 2 (imports block). If you find yourself writing `import smtplib` before the logging banner, stop and move it here.
 4. Variables zone — all config as module-level `_` prefixed variables, preceded by a `###################### variables zone ######################` banner:
 
 ```Example
@@ -273,6 +274,7 @@ _dag_name = "##DAG_NAME##"
 ### Key rules
 - **Imports:** only import operators/sensors that are actually used in the DAG. **Before writing any import, verify that at least one task in the generated DAG actually instantiates that operator/sensor class.** If no task uses it, do not import it — unused imports are a code smell and must not appear in generated output.
   - `EmptyOperator` → `from airflow.providers.standard.operators.empty import EmptyOperator` (Airflow 3.x) — never from `airflow.operators.empty` (deprecated). **Only import if the DAG contains at least one `EmptyOperator(...)` task instance.**
+  > **Self-check before writing imports:** List every operator/sensor class you will instantiate. Only import those classes. If you find no `EmptyOperator(...)` call in your task list, do NOT add the `EmptyOperator` import.
   - `TriggerRule` → `from airflow.task.trigger_rule import TriggerRule` (Airflow 3.x) — **ONLY if** `AND_OR="O"` appears in any INCOND definition. Check all INCOND tags first; if none have `AND_OR="O"`, do NOT import. Never import from `airflow.utils.trigger_rule` (deprecated — redirects to `airflow.task.trigger_rule` with a warning) or `airflow.models.trigger_rule` (does not exist in Airflow 3.x).
   - `send_email` → `from airflow.utils.email import send_email` — **ONLY if** callbacks are enabled. Place the import **inside** the `if` guard, not at the top of the callback or at module level:
     ```python
@@ -283,7 +285,7 @@ _dag_name = "##DAG_NAME##"
     ```
     An import placed before the `if` guard fires on every callback invocation regardless of the flag — this is wrong.
   - Do not import operators/sensors unless a task uses them. Avoid importing unused symbols.
-- **All inputs lowercased:** `company`, `app_id`, `app_code`, `folder_name`, `env`, all tag values, task IDs, Python variable names, and the DAG ID components must always be `.lower()` — regardless of how they are provided as input. Even if the user passes `APP_ID=APP1234`, store and emit it as `app1234`.
+- **All inputs lowercased:** `company`, `app_id`, `app_code`, `folder_name`, `env`, all tag values, task IDs, Python variable names, and the DAG ID components must always be `.lower()` — regardless of how they are provided as input. Even if the user passes `APP_ID=APP1234`, store and emit it as `app1234`. This includes `_project` in the variables zone — it must always be the lowercased `app_id` value (e.g. `_project = "ap1002"`, never `"AP1002"`).
 - **Task Python variable name:** `<app_id>_<app_code>_task_<job_name>_<period>` — all lowercase, `-` replaced with `_` (e.g. `app1234_testapp_task_rt_rb2cm005_d`). The `task_id` string uses `-` per the Naming convention table.
 - `default_args` must include: `owner`, `depends_on_past`, `start_date`, `timezone`, `retries=3`, `retry_delay`, `retry_exponential_backoff`, `max_retry_delay`, `email_on_failure=False`, `email_on_retry=False`
 - DAG ID constructed as: `_company + '-' + _project + '-' + _app_code + '-' + _dag_name + '-' + _env`
