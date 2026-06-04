@@ -21,11 +21,11 @@ target
 #.idea/
 
 output/
+output.zip
 input/
-test_run.sh
-test_run_all.sh
-test_input*.sh
-final_test.sh
+
+upload_example.sh
+
 .idea/
 skills/*/templates/
 skills/*/research/
