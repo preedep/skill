@@ -199,6 +199,12 @@ for input_path in "${INPUT_FILES[@]}"; do
             fail "Syntax FAIL: $(basename "${dag}")"
             syntax_ok=false
         fi
+        if .venv/bin/pyflakes "${dag}" >> "${CASE_LOG}" 2>&1; then
+            pass "Lint OK   : $(basename "${dag}")"
+        else
+            fail "Lint FAIL : $(basename "${dag}")"
+            syntax_ok=false
+        fi
     done
 
     if $syntax_ok; then
@@ -207,7 +213,7 @@ for input_path in "${INPUT_FILES[@]}"; do
     else
         fail "Case ${IDX} FAILED — ${base} (see ${CASE_LOG})"
         FAILED=$((FAILED + 1))
-        FAILED_CASES+=("${IDX}: ${base} — DAG syntax error")
+        FAILED_CASES+=("${IDX}: ${base} — DAG syntax/lint error")
     fi
 done
 

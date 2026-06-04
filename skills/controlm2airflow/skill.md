@@ -181,9 +181,9 @@ Apply these principles consistently across all generated scripts (bash, PowerShe
    - If `AND_OR="O"` with multiple conditions → use `trigger_rule=TriggerRule.ONE_SUCCESS`
 
 5. **Syntax check:** Validate any embedded shell scripts (SSHOperator) or PowerShell (PsrpOperator):
-   - Ensure backslashes are escaped correctly
+   - Ensure backslashes are escaped correctly in f-strings (double `\\` for Windows paths)
    - Ensure string delimiters are valid Python
-   - Use raw strings (`r"""..."""`) for Windows paths
+   - Use f-strings (`f"""..."""`) so module-level globals are interpolated into scripts
 
 6. **Write output:**
    - **Mode A:** Write plain DAG to `output/<dag_filename>.py`
@@ -201,10 +201,12 @@ Apply these principles consistently across all generated scripts (bash, PowerShe
    ```bash
    python <output_file>.py       # Check syntax and DAG instantiation
    echo $?                       # Exit code 0 = pass, ≠ 0 = fail
+   pyflakes <output_file>.py     # Lint: unused imports, undefined names
+   echo $?                       # Exit code 0 = pass, ≠ 0 = fix and re-run
    ```
-   - Exit code 0 → success; proceed to step 8
-   - Exit code ≠ 0 → fix error, re-verify, repeat until clean
-   - **Hard gate:** Do not deliver until verification passes
+   - Both commands must exit 0 before the file is considered complete
+   - Exit code ≠ 0 on either → fix error, re-verify, repeat until clean
+   - **Hard gate:** Do not deliver until both checks pass
 
 8. **Flag unsupported types:** For any job type not in **Control-M Appl_Type Mapping**, emit `# TODO: <job_type> not yet supported` comment and log a warning.
 
@@ -542,10 +544,11 @@ pip install apache-airflow \
     apache-airflow-providers-cncf-kubernetes \
     apache-airflow-providers-amazon \
     apache-airflow-providers-standard \
-    pendulum
+    pendulum \
+    pyflakes
 ```
 
-> This venv is used for DAG syntax verification (step 6 in Behavior). It does not need a running Airflow instance — import-level validation via `python <dag>.py` is sufficient.
+> This venv is used for DAG syntax verification (step 7 in Behavior). It does not need a running Airflow instance — `python <dag>.py` validates imports and DAG instantiation; `pyflakes <dag>.py` catches unused imports and undefined names.
 
 
 ## Reference
