@@ -22,7 +22,9 @@ skill/
     │   │   ├── controlm-schema.xsd
     │   │   ├── neutron_export_xml_260522.xml
     │   │   └── node_id.md
-    │   └── templates/    # DAG/config/groovy templates per operator type
+    │   └── templates/    # DAG/config/groovy templates per operator type (gitignored except reusable-*-dynamic *.py)
+    │       ├── file-transfer-reusable-unix-dynamic/dags/project_file_transfer_unix_dynamic.py  (tracked)
+    │       └── file-transfer-reusable-win-dynamic/dags/project_file_transfer_win_dynamic.py   (tracked)
     └── <skill-name>/     # (future skills follow the same pattern)
         ├── skill.md      # skill definition: purpose, inputs, outputs, examples
         └── ...           # supporting assets or code
@@ -62,9 +64,14 @@ skill/
 Test inputs live in `input/test_case*.xml` (gitignored). Run all cases:
 
 ```bash
-./run_tests.sh          # all 6 cases
-./run_tests.sh 1 4      # specific cases only
+./run_tests.sh                        # all cases
+./run_tests.sh --scenario reusable    # by keyword
+./run_tests.sh input/test_case1.xml   # by file
+./run_tests.sh --list                 # list available scenarios
 ```
+
+Token usage (input/output/cache/cost) is reported per case and totalled in the summary.
+Stream logs saved to `logs/<case>_stream.jsonl` alongside the human-readable log.
 
 | Case | File | Feature tested |
 |------|------|----------------|
@@ -76,8 +83,10 @@ Test inputs live in `input/test_case*.xml` (gitignored). Run all cases:
 | 6 | `test_case6_aws_stepfunction.xml` | AWS Step Function + S3 upload |
 | 7 | `test_case7_filetrans_ftpssl.xml` | FILE_TRANS FTP-SSL: wildcard upload, mixed download/upload, PRECOMM mkdir, SRCOPT delete-source, %%D day-of-week variable |
 | 8 | `test_case8_cyclic.xml` | CYCLIC=1 INTERVAL=00015M: schedule=timedelta(minutes=15), two parallel chains OS→FILE_TRANS→OS, wildcard LPATH |
+| 9 | `test_case9_multi_schedule.xml` | Folder with 2 independent FILE_TRANS jobs at different TIMEFROM (2100 and 0100) — must split into 2 DAGs, no cross-dependencies |
+| 10 | `test_case10_reusable_dag.xml` | Mode B reusable DAG: EXPINV_DAILY_TABLE — 2 OS + 3 FILE_TRANS (Unix, 2 source hosts, 2 dest hosts, fork dependency) → reusable unix DAG + caller DAG with `TriggerDagRunOperator` + `ExternalTaskSensor` pairs |
 
-Each case converts the XML via `claude --print` using `skill.md`, then syntax-verifies every generated DAG with `python <dag>.py` (exit code 0 required).
+Each case converts the XML via `claude --print` using `skill.md`, then syntax-verifies every generated DAG with `python <dag>.py` + `pyflakes` (both exit code 0 required).
 
 ## Constraints 
 - Not save or use real company data to git.

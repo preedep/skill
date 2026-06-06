@@ -6,13 +6,26 @@
 #   ./run_tests.sh input/test_case1.xml     # run specific file(s) by path
 #   ./run_tests.sh --scenario wildcard      # run files matching keyword(s)
 #   ./run_tests.sh --scenario filewatch aws # run files matching any keyword
+#   ./run_tests.sh --scenario reusable      # run reusable DAG test case(s)
 #   ./run_tests.sh --list                   # list available scenarios
 #
 # Scenario keywords match against the input filename (case-insensitive substring).
-# Examples: prepost, wildcard, filewatch, os, aws
+# Examples: prepost, wildcard, filewatch, os, aws, reusable
 #
 # Output: output/<basename_without_ext>/  per input file (preserved across runs)
 # Logs:   logs/run_tests_<timestamp>.log  + logs/<basename>_<timestamp>.log per case
+#
+# Test cases:
+#   1  test_case1_filetrans_prepost.xml         FILE_TRANS with pre-command + post-command
+#   2  test_case2_filetrans_wildcard.xml        FILE_TRANS with wildcard file paths
+#   3  test_case3_filetrans_filewatch.xml       FILE_TRANS with FTP-UPLOAD=3 (file watch)
+#   4  test_case4_filewatch.xml                 FileWatch jobs → PsrpOperator polling
+#   5  test_case5_os_jobs.xml                   OS jobs → SSHOperator
+#   6  test_case6_aws_stepfunction.xml          AWS Step Function + S3 upload
+#   7  test_case7_filetrans_ftpssl.xml          FILE_TRANS FTP-SSL with %%D day variable
+#   8  test_case8_cyclic.xml                    CYCLIC=1 INTERVAL=15M parallel chains
+#   9  test_case9_multi_schedule.xml            Folder with 2 FILE_TRANS at different TIMEFROM → 2 DAGs
+#  10  test_case10_reusable_dag.xml             Mode B: reusable unix DAG — TriggerDagRunOperator + ExternalTaskSensor
 
 set -euo pipefail
 
@@ -36,8 +49,8 @@ fail() { log "${RED}[FAIL]${NC} $*"; }
 info() { log "${YELLOW}[INFO]${NC} $*"; }
 
 usage() {
-    # print header comment block (lines 2-16, strip leading '# ')
-    sed -n '2,16p' "$0" | sed 's/^# \{0,1\}//'
+    # print header comment block (lines 2-30, strip leading '# ')
+    sed -n '2,30p' "$0" | sed 's/^# \{0,1\}//'
     echo ""
     echo "Available scenarios (input/test_case*.xml):"
     for f in "${INPUT_DIR}"/test_case*.xml; do
@@ -112,9 +125,11 @@ get_params() {
         test_case4*) echo "AP1004:edw"    ;;
         test_case5*) echo "AP1005:clr"    ;;
         test_case6*) echo "AP1006:nss"    ;;
-        test_case7*) echo "AP1007:rbf"   ;;
-        test_case8*) echo "AP1008:nss"  ;;
-        *)           echo "AP9999:app"  ;;
+        test_case7*)  echo "AP1007:rbf"    ;;
+        test_case8*)  echo "AP1008:nss"    ;;
+        test_case9*)  echo "AP1009:expinv" ;;
+        test_case10*) echo "AP1010:expinv" ;;
+        *)            echo "AP9999:app"    ;;
     esac
 }
 
@@ -122,6 +137,50 @@ TOTAL=0
 PASSED=0
 FAILED=0
 FAILED_CASES=()
+
+# token usage accumulators
+TOTAL_INPUT_TOKENS=0
+TOTAL_OUTPUT_TOKENS=0
+TOTAL_CACHE_READ_TOKENS=0
+TOTAL_COST_USD=0
+
+# parse token usage from a claude stream-json log file
+# prints: "input=N output=N cache_read=N cost=$N"
+extract_tokens() {
+    local log_file="$1"
+    # last line of stream-json output is the result JSON containing modelUsage
+    python3 - "$log_file" << 'PYEOF'
+import sys, json
+
+log_path = sys.argv[1]
+model_usage = {}
+
+with open(log_path, encoding='utf-8', errors='replace') as f:
+    for line in f:
+        line = line.strip()
+        if not line.startswith('{'):
+            continue
+        try:
+            obj = json.loads(line)
+            if 'modelUsage' in obj:
+                model_usage = obj['modelUsage']
+        except json.JSONDecodeError:
+            pass
+
+input_tok   = 0
+output_tok  = 0
+cache_read  = 0
+cost_usd    = 0.0
+
+for model, stats in model_usage.items():
+    input_tok  += stats.get('inputTokens', 0)
+    output_tok += stats.get('outputTokens', 0)
+    cache_read += stats.get('cacheReadInputTokens', 0)
+    cost_usd   += stats.get('costUSD', 0.0)
+
+print(f"input={input_tok} output={output_tok} cache_read={cache_read} cost={cost_usd:.6f}")
+PYEOF
+}
 
 log "========================================"
 log "  controlm2airflow — test suite"
@@ -162,8 +221,15 @@ for input_path in "${INPUT_FILES[@]}"; do
     # each case gets its own output subdirectory (preserved — not wiped)
     mkdir -p "${CASE_OUTPUT}"
 
-    # run skill via claude
-    info "Running claude skill..."
+    # determine output mode: reusable_dag for cases whose filename contains "reusable"
+    mode="inline"
+    if echo "${base}" | grep -qi "reusable"; then
+        mode="reusable_dag"
+    fi
+
+    # run skill via claude (stream-json for token tracking)
+    STREAM_LOG="${CASE_LOG%.log}_stream.jsonl"
+    info "Running claude skill (mode=${mode})..."
     {
         printf 'Follow the skill defined in skills/controlm2airflow/skill.md to convert Control-M jobs to Airflow DAGs.\n\n'
         printf 'Input XML: %s\n' "${input_path}"
@@ -173,7 +239,47 @@ for input_path in "${INPUT_FILES[@]}"; do
         printf 'app_id   = %s\n' "${app_id}"
         printf 'app_code = %s\n' "${app_code}"
         printf 'env      = %s\n' "${ENV}"
-    } | claude --print --allowedTools "Read,Write,Bash" 2>&1 | tee "${CASE_LOG}" || true
+        printf 'mode     = %s\n' "${mode}"
+        if [ "${mode}" = "reusable_dag" ]; then
+            printf '\nOutput mode is [B] Reusable transfer DAG.\n'
+            printf 'Generate the reusable unix transfer DAG (cloned from file-transfer-reusable-unix-dynamic template)\n'
+            printf 'AND the caller business DAG. FILE_TRANS jobs must become TriggerDagRunOperator + ExternalTaskSensor pairs.\n'
+            printf 'All 11 conf params must be passed explicitly. Dependency chains wire to wait_* sensor tasks.\n'
+            printf 'Verify both output files with python + pyflakes.\n'
+        fi
+    } | claude --print --output-format stream-json --verbose --allowedTools "Read,Write,Bash" \
+        2>&1 | tee "${STREAM_LOG}" \
+        | python3 -c "
+import sys, json
+for line in sys.stdin:
+    line = line.strip()
+    if not line.startswith('{'):
+        print(line, flush=True)
+        continue
+    try:
+        obj = json.loads(line)
+        # print assistant text chunks to human-readable log
+        if obj.get('type') == 'assistant' and 'message' in obj:
+            for block in obj['message'].get('content', []):
+                if block.get('type') == 'text':
+                    print(block['text'], end='', flush=True)
+    except json.JSONDecodeError:
+        print(line, flush=True)
+" 2>&1 | tee "${CASE_LOG}" || true
+
+    # extract token usage from stream log
+    token_info="$(extract_tokens "${STREAM_LOG}" 2>/dev/null || echo "input=0 output=0 cache_read=0 cost=0.000000")"
+    case_input=$(echo "${token_info}"  | sed -nE 's/.*input=([0-9]+).*/\1/p')
+    case_output=$(echo "${token_info}" | sed -nE 's/.*output=([0-9]+).*/\1/p')
+    case_cache=$(echo "${token_info}"  | sed -nE 's/.*cache_read=([0-9]+).*/\1/p')
+    case_cost=$(echo "${token_info}"   | sed -nE 's/.*cost=([0-9.]+).*/\1/p')
+
+    TOTAL_INPUT_TOKENS=$((TOTAL_INPUT_TOKENS   + ${case_input:-0}))
+    TOTAL_OUTPUT_TOKENS=$((TOTAL_OUTPUT_TOKENS + ${case_output:-0}))
+    TOTAL_CACHE_READ_TOKENS=$((TOTAL_CACHE_READ_TOKENS + ${case_cache:-0}))
+    TOTAL_COST_USD=$(python3 -c "print(f'{float(\"${TOTAL_COST_USD}\") + float(\"${case_cost:-0}\"):.6f}')" 2>/dev/null || echo "${TOTAL_COST_USD}")
+
+    info "Tokens : input=${case_input:-0} output=${case_output:-0} cache_read=${case_cache:-0} cost=\$${case_cost:-0.000000}"
 
     # check output was generated
     dag_files=("${CASE_OUTPUT}"/*.py)
@@ -228,6 +334,12 @@ if [ ${#FAILED_CASES[@]} -gt 0 ]; then
         log "  • ${fc}"
     done
 fi
+log ""
+log "  Token usage (all cases):"
+log "    Input tokens      : ${TOTAL_INPUT_TOKENS}"
+log "    Output tokens     : ${TOTAL_OUTPUT_TOKENS}"
+log "    Cache read tokens : ${TOTAL_CACHE_READ_TOKENS}"
+log "    Total cost (USD)  : \$${TOTAL_COST_USD}"
 log ""
 log "  Output : ${OUTPUT_BASE}/<case-name>/"
 log "  Log    : ${SUMMARY_LOG}"

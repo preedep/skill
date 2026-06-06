@@ -135,6 +135,99 @@ Apply these principles consistently across all generated scripts (bash, PowerShe
 1. **Parse and group:** Extract all Control-M folder and job metadata from input XML. Group jobs by folder — each folder produces one DAG file + one config JSON (Mode B only).
 
 2. **Configure DAG:** For each folder:
+
+   #### 2a. Multi-schedule split
+
+   Before configuring a single DAG, check whether jobs in the folder have different `TIMEFROM` values:
+
+   **Step 1 — Resolve each job's effective schedule:**
+   - Job-level `TIMEFROM` takes precedence over folder-level `TIMEFROM`
+   - If a job has no `TIMEFROM`, it inherits the folder-level value
+   - Group jobs by their effective `TIMEFROM`
+   - If all jobs share the same `TIMEFROM` → single DAG (standard flow, continue below)
+
+   **Step 2 — Classify dependencies:**
+   - **Same-group:** both jobs share the same `TIMEFROM` → stays as direct `>>` in the same DAG
+   - **Cross-group:** jobs belong to different `TIMEFROM` groups → becomes `ExternalTaskSensor`
+
+   **Step 3 — Generate one DAG per schedule group:**
+   - Naming: append `_<HHMM>` from the group's `TIMEFROM` to the folder name:
+     `<company>-<app_id>-<app_code>-<folder_name>_<HHMM>-<env>.py`
+   - Add to each DAG header:
+     ```python
+     # NOTE: split from Control-M folder <FOLDER_NAME> — schedule group <HHMM>
+     # Other schedule groups: <HHMM1>, <HHMM2>, ...
+     ```
+
+   **Step 4 — Wire cross-group dependencies:**
+   - In the downstream DAG, add an `ExternalTaskSensor` before the dependent task:
+     ```python
+     wait_for_job_b = ExternalTaskSensor(
+         task_id="wait_<job_b_task_id>",
+         external_dag_id="<company>-<app_id>-<app_code>-<folder_name>_<HHMM>-<env>",
+         external_task_id="<job_b_task_id>",
+         mode="reschedule",
+         timeout=86400,
+     )
+     wait_for_job_b >> task_c
+     ```
+   - The upstream DAG needs no change — task success satisfies the OUTCOND.
+
+   **Examples:**
+
+   Case A — Independent groups (no cross-group deps):
+   ```
+   Folder: AFT_ERP_DAILY (folder TIMEFROM=0800)
+     Job A  TIMEFROM=0800  no INCOND
+     Job B  TIMEFROM=0800  INCOND: A-ENDED-OK
+     Job C  TIMEFROM=2200  no INCOND  (job-level override)
+
+   → DAG 1 scb-ap1001-erp-aft_erp_daily_0800-dev:  task_a >> task_b
+   → DAG 2 scb-ap1001-erp-aft_erp_daily_2200-dev:  task_c  (standalone)
+   ```
+
+   Case B — Cross-group dependency:
+   ```
+   Folder: AFT_ERP_DAILY (folder TIMEFROM=0800)
+     Job A  TIMEFROM=0800  no INCOND
+     Job B  TIMEFROM=0800  INCOND: A-ENDED-OK
+     Job C  TIMEFROM=2200  INCOND: B-ENDED-OK  ← cross-group
+
+   → DAG 1 scb-ap1001-erp-aft_erp_daily_0800-dev:
+       task_a >> task_b
+   → DAG 2 scb-ap1001-erp-aft_erp_daily_2200-dev:
+       wait_for_task_b (ExternalTaskSensor → DAG 1 / task_b) >> task_c
+   ```
+
+   Case C — Multiple cross-group deps on one task:
+   ```
+   Folder: AFT_ERP_DAILY
+     Job A  TIMEFROM=0800
+     Job B  TIMEFROM=1200
+     Job C  TIMEFROM=2200  INCOND: A-ENDED-OK AND B-ENDED-OK  ← two cross-group
+
+   → DAG 1 (0800): task_a
+   → DAG 2 (1200): task_b
+   → DAG 3 (2200):
+       wait_for_a (ExternalTaskSensor → DAG 1 / task_a)
+       wait_for_b (ExternalTaskSensor → DAG 2 / task_b)
+       [wait_for_a, wait_for_b] >> task_c
+   ```
+
+   Case D — Circular or ambiguous cross-group dependency:
+   ```
+   Job A (0800) INCOND: C-ENDED-OK
+   Job C (2200) INCOND: A-ENDED-OK  ← circular
+
+   → Split as above, emit:
+     # TODO: circular cross-schedule dependency detected — verify execution order
+     Use schedule=None on the ambiguous DAG.
+   ```
+
+   > **Rule:** same-group deps → `>>`. Cross-group deps → `ExternalTaskSensor`. Never drop a dependency because jobs run at different times.
+
+   #### 2b. Single DAG configuration
+
    - Derive DAG file name and DAG ID from `<company>-<app_id>-<app_code>-<folder_name>-<env>` (lowercased)
    - Map folder schedule to Airflow `schedule` parameter using **Schedule Mapping** rules (default timezone: `Asia/Bangkok`)
    - Add DAG-level header comment documenting the Control-M source:
@@ -530,6 +623,197 @@ Use `Write-Host "..."`. Log: start, logical date, source/destination, completion
 * Do not omit required variables.
 * Keep scripts enterprise-readable and maintainable.
 
+
+## Reusable File Transfer DAG (Optional Mode)
+
+By default the skill generates a self-contained DAG per folder where every `FILE_TRANS` task is inlined directly inside `SSHOperator` / `PsrpOperator`. This is **Mode A (default)**.
+
+Optionally, the project team may choose **Mode B — Reusable Transfer DAG**. In this mode the project owns a single parameterized transfer DAG (cloned from template) and all `FILE_TRANS` jobs in the caller DAG become `TriggerDagRunOperator` + `ExternalTaskSensor` pairs.
+
+> **Always ask the user which mode they want before generating.** If not specified, use Mode A.
+
+### Mode Selection Prompt
+
+```
+Which output mode do you want for FILE_TRANS jobs?
+
+  [A] Inline (default)
+      Full transfer script inlined inside SSHOperator / PsrpOperator per task.
+      Self-contained, no inter-DAG dependencies.
+
+  [B] Reusable transfer DAG
+      Project owns one parameterized transfer DAG (schedule=None).
+      Each FILE_TRANS job becomes TriggerDagRunOperator + ExternalTaskSensor.
+      All parameters passed via conf={} — one DAG handles all jobs in the project.
+```
+
+---
+
+### Mode A — Inline (default)
+
+Standard output — no change from existing behavior. Every `FILE_TRANS` job generates a fully inlined task.
+
+---
+
+### Mode B — Reusable Transfer DAG
+
+#### Output files
+
+Generate **three files** per project:
+
+```
+scb_projecta_file_transfer_win_dev.py    ← reusable DAG (Windows, if any Windows FILE_TRANS)
+scb_projecta_file_transfer_unix_dev.py   ← reusable DAG (Unix, if any Unix FILE_TRANS)
+scb_projecta_jobs_dev.py                 ← business DAG (caller)
+```
+
+One reusable DAG per OS type per project — regardless of how many source servers or destination hosts exist. All transfer parameters are passed at runtime via `conf={}`.
+
+#### Template selection
+
+| Source OS (from NODEID lookup) | Clone from template |
+|---|---|
+| Windows (`PsrpOperator`) | `file-transfer-reusable-win-dynamic` |
+| Unix (`SSHOperator`) | `file-transfer-reusable-unix-dynamic` |
+
+Clone the template, replace only `##COMPANY##`, `##PROJECT##`, `##DAG_NAME##`, `##ENV##`, `##ACTIVE##`, `##TAGS##`, `##EMAIL_LIST##`, `##ENABLE_EMAIL_NOTIFICATION_SUCCESS##`, `##ENABLE_EMAIL_NOTIFICATION_FAIL##`. No infrastructure placeholders — all infra comes from `conf={}` at runtime.
+
+#### Reusable DAG naming
+
+`<company>-<project>-file-transfer-<win|unix>-<env>`
+
+Example: `scb-projecta-file-transfer-win-dev`
+
+#### Per-job params passed via `conf={}`
+
+Every `FILE_TRANS` job maps to these `conf` keys:
+
+| `conf` key | Derived from Control-M | Required |
+|---|---|---|
+| `psrp_conn_id` / `ssh_conn_id` | `NODEID` → Connection ID Derivation | yes |
+| `source_path` | `FTP-LPATH{N}` (with `%%` substitution) | yes |
+| `dest_host` | `FTP-RHOST` | yes |
+| `dest_port` | `FTP-RPORT` — **no default, always explicit**: `21` (ftp/ftps) or `22` (sftp) | yes |
+| `dest_protocol` | `FTP-CONNTYPE2` lowercased — **no default, always explicit**: `ftp` / `ftps` / `sftp` | yes |
+| `dest_user` | `FTP-RUSER` | yes |
+| `dest_path` | `FTP-RPATH{N}` (with `%%` substitution) | yes |
+| `password_var_name` | Airflow Variable name for `FTP-RPASS` | yes |
+| `pre_command` | `FTP-PRECOMM{N}` — empty string `""` if not present | yes |
+| `post_command` | `FTP-POSTCOMM{N}` — empty string `""` if not present | yes |
+| `delete_source` | `True` if `FTP-SRCOPT{N}=1`, else `False` | yes |
+
+> **`dest_port` and `dest_protocol` have no defaults** — always derive from Control-M XML and pass explicitly. Never assume `21`/`ftp`.
+
+#### Generated caller DAG — one FILE_TRANS job becomes two tasks
+
+Each `FILE_TRANS` job generates a **`TriggerDagRunOperator` + `ExternalTaskSensor` pair**:
+
+```python
+from airflow.providers.standard.sensors.external_task import ExternalTaskSensor
+from airflow.providers.standard.operators.trigger_dagrun import TriggerDagRunOperator
+
+# Control-M job: TRANSFER_REPORT | NODEID: winsrv01 | FTP-UPLOAD1=1
+# LPATH: D:\data\report\*.csv | RPATH: /incoming/report/
+# INCOND: PREV_JOB-ENDED-OK | OUTCOND: TRANSFER_REPORT-ENDED-OK
+ap1234_projecta_task_trigger_transfer_report_d = TriggerDagRunOperator(
+    task_id='ap1234-projecta-task_trigger_transfer_report-d',
+    trigger_dag_id='scb-projecta-file-transfer-win-dev',
+    wait_for_completion=False,      # fire and free worker slot immediately
+    conf={
+        "psrp_conn_id":      "psrp_winsrv01",
+        "source_path":       r"D:\data\report\*.csv",
+        "dest_host":         "10.0.1.50",
+        "dest_port":         "21",
+        "dest_protocol":     "ftp",
+        "dest_user":         r"domain\svc_transfer",
+        "dest_path":         "/incoming/report/",
+        "password_var_name": "projecta_transfer_password",
+        "pre_command":       "",
+        "post_command":      "",
+        "delete_source":     False,
+    },
+)
+
+ap1234_projecta_task_wait_transfer_report_d = ExternalTaskSensor(
+    task_id='ap1234-projecta-task_wait_transfer_report-d',
+    external_dag_id='scb-projecta-file-transfer-win-dev',
+    external_task_id=None,          # None = watch entire DAG run (not a specific task)
+    mode='reschedule',              # releases worker slot between polls
+    poke_interval=60,
+    timeout=3600,
+    on_failure_callback=failure_callback,
+)
+```
+
+#### Task naming convention for Mode B
+
+| Task | `task_id` pattern |
+|---|---|
+| Trigger | `<app_id>-<app_code>-task_trigger_<job_name>-<period>` |
+| Sensor | `<app_id>-<app_code>-task_wait_<job_name>-<period>` |
+
+Python variable names follow the same pattern with `_` replacing `-`.
+
+#### Dependency wiring — wire to the sensor, not the trigger
+
+`INCOND`/`OUTCOND` chains connect to `wait_<job_name>` — that is the task that signals completion to downstream jobs:
+
+```python
+# Upstream task → trigger → sensor → downstream task
+ap1234_projecta_task_prev_job_d >> ap1234_projecta_task_trigger_transfer_report_d
+ap1234_projecta_task_trigger_transfer_report_d >> ap1234_projecta_task_wait_transfer_report_d
+ap1234_projecta_task_wait_transfer_report_d >> ap1234_projecta_task_process_data_d
+```
+
+Or chained concisely:
+
+```python
+ap1234_projecta_task_prev_job_d >> ap1234_projecta_task_trigger_transfer_report_d >> ap1234_projecta_task_wait_transfer_report_d >> ap1234_projecta_task_process_data_d
+```
+
+#### Worker slot behaviour
+
+```
+Mode A — inline:
+  worker pod ──────────────── transfer running ──────────────── done ──► free
+  [slot held for full transfer duration, e.g. 30 min]
+
+Mode B — trigger + sensor(reschedule):
+  trigger: worker pod ──► free  (seconds)
+  sensor:  wake ──► poll ──► sleep ──► wake ──► poll ──► done ──► free
+  [slot held only during poll check, e.g. ~2 sec every 60 sec]
+```
+
+#### Required imports in caller DAG (Mode B)
+
+```python
+from airflow.providers.standard.sensors.external_task import ExternalTaskSensor
+from airflow.providers.standard.operators.trigger_dagrun import TriggerDagRunOperator
+```
+
+Use the `providers.standard` paths (Airflow 3.x). Do not use `airflow.sensors.external_task` or `airflow.operators.trigger_dagrun` — those are the Airflow 2.x paths. Only import these if Mode B is selected — do not add unused imports.
+
+#### Reusable DAG — validate_source task
+
+The `validate_source_files` task checks that source files exist **on the source server**. The `SSHOperator` is already connected to the source server via `ssh_conn_id` — use a local `ls` only:
+
+```bash
+SRC_PATH="{{ params.source_path }}"
+ls ${SRC_PATH} || { echo "[ERROR] No source files: ${SRC_PATH}"; exit 1; }
+```
+
+Do **not** connect to `dest_host` in `validate_source` — that is the transfer destination, not the source. Connecting to `dest_host` with the source path will always return empty or fail.
+
+#### Verification (Mode B)
+
+Run `python` + `pyflakes` on **both** files — reusable DAG and caller DAG must both pass before delivery:
+
+```bash
+python scb_projecta_file_transfer_win_dev.py && pyflakes scb_projecta_file_transfer_win_dev.py
+python scb_projecta_jobs_dev.py              && pyflakes scb_projecta_jobs_dev.py
+```
+
+---
 
 ## Setup
 
