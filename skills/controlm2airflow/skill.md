@@ -199,30 +199,7 @@ Apply these principles consistently across all generated scripts (bash, PowerShe
        wait_for_task_b (ExternalTaskSensor → DAG 1 / task_b) >> task_c
    ```
 
-   Case C — Multiple cross-group deps on one task:
-   ```
-   Folder: AFT_ERP_DAILY
-     Job A  TIMEFROM=0800
-     Job B  TIMEFROM=1200
-     Job C  TIMEFROM=2200  INCOND: A-ENDED-OK AND B-ENDED-OK  ← two cross-group
-
-   → DAG 1 (0800): task_a
-   → DAG 2 (1200): task_b
-   → DAG 3 (2200):
-       wait_for_a (ExternalTaskSensor → DAG 1 / task_a)
-       wait_for_b (ExternalTaskSensor → DAG 2 / task_b)
-       [wait_for_a, wait_for_b] >> task_c
-   ```
-
-   Case D — Circular or ambiguous cross-group dependency:
-   ```
-   Job A (0800) INCOND: C-ENDED-OK
-   Job C (2200) INCOND: A-ENDED-OK  ← circular
-
-   → Split as above, emit:
-     # TODO: circular cross-schedule dependency detected — verify execution order
-     Use schedule=None on the ambiguous DAG.
-   ```
+   > **Edge cases:** Multiple cross-group deps on one task → add one `ExternalTaskSensor` per predecessor, then `[wait_a, wait_b] >> task_c`. Circular cross-group dependency → split as above, emit `# TODO: circular cross-schedule dependency detected — verify execution order` and `schedule=None` on the ambiguous DAG.
 
    > **Rule:** same-group deps → `>>`. Cross-group deps → `ExternalTaskSensor`. Never drop a dependency because jobs run at different times.
 
@@ -364,6 +341,7 @@ Follow the company DAG (focus on Airflow 3.x) templates — see [`templates/`](t
    ```
    **Critical:** `import smtplib` must appear **inside** this logging section (immediately after the `####` banner), never in the top-level imports block (step 2). Do NOT move it up with the other imports — its placement here is intentional and required.
    > **Violation to avoid:** Do NOT write `import smtplib` in step 2 (imports block). If you find yourself writing `import smtplib` before the logging banner, stop and move it here.
+   > **Hard gate before writing any DAG file:** Scan your generated output for `import smtplib`. It must appear exactly once, on the line immediately after the `###################### logging ######################` banner. If it is absent, or appears anywhere else (top-level imports, inside a function, after the variables zone), do NOT write the file — fix the placement first and re-check.
 4. Variables zone — all config as module-level `_` prefixed variables, preceded by a `###################### variables zone ######################` banner:
 
 ```Example
@@ -403,22 +381,29 @@ _dag_name = "##DAG_NAME##"
 - **`# RUN_AS` comment:** always write the actual RUN_AS username from the Control-M job (e.g. `# RUN_AS: ctrlm`) — never use a placeholder like `# RUN_AS comment`.
 - **Module-level variables — declare all extracted Control-M values as globals:** Every path, host, user, and translated `%%` variable extracted from Control-M must be declared as a `_`-prefixed module-level variable in the variables zone. Scripts reference these globals by using an f-string (`f"""..."""`) for the `command=` or `powershell=` argument — never embed values directly in the script body. For Windows paths inside f-strings use double-backslashes (`\\`) or forward slashes to avoid backslash interpretation.
 
-### Shell Script Guidelines
+### Script Guidelines (Shell + PowerShell)
 
-Use for shell scripts embedded in SSHOperator tasks.
+Rules apply to both `SSHOperator` (bash) and `PsrpOperator` (PowerShell) tasks. Language-specific differences are noted inline.
 
 #### General Rules
 
-* Generate production-ready shell scripts.
-* Use Bash-compatible syntax unless otherwise specified.
-* Scripts must be deterministic and rerun-safe.
-* Avoid interactive commands.
-* Avoid commands requiring TTY input.
+* Generate production-ready, deterministic, rerun-safe scripts.
+* No interactive commands, TTY input, or GUI-dependent commands.
+* Use absolute paths wherever possible.
+* Avoid environment assumptions.
+* Produce complete runnable scripts with professional comments (header, task, dependencies). Never use `...` as a placeholder.
 
 #### Script Format
 
-Embed shell scripts as Python f-string triple-quoted strings so that module-level globals can be interpolated. **Do not rely on a shebang line** — SSHOperator passes the script content to the remote shell's stdin/exec; a `#!/usr/bin/env bash` line is treated as a comment and does not select the interpreter. To guarantee bash execution, wrap the entire script body with `bash -s` or use a heredoc invocation:
+| | Bash (SSHOperator) | PowerShell (PsrpOperator) |
+|---|---|---|
+| String type | `f"""..."""` (f-string) | `f"""..."""` (f-string, unless no globals) |
+| Wrapping | `bash -s << 'BASH' ... BASH` — do NOT rely on shebang; SSHOperator passes to stdin | `powershell=f"""..."""` directly |
+| Globals in script | `LPATH="{_lpath}"` — Python interpolates at DAG load | `$LPath = "{_lpath}"` |
+| Windows paths in f-string | N/A | Use double-backslashes `"D:\\\\app\\\\file.txt"` or forward slashes |
+| `.bat`/`.cmd` on Windows | N/A | Wrap with `cmd /c` inside `powershell=r"""..."""`; check `$LASTEXITCODE` |
 
+Bash example:
 ```python
 command=f"""bash -s << 'BASH'
 set -euo pipefail
@@ -428,119 +413,7 @@ RHOST="{_rhost}"
 BASH"""
 ```
 
-> Use `f"""..."""` (not `r"""..."""`) so Python interpolates `_`-prefixed globals. Backslashes in Linux paths are not an issue; for any literal backslash needed in the script body use `\\`.
-
-#### Airflow Scheduling Semantics
-
-Follow the **Airflow Date/Time Best Practices** section (see above) for all date variable handling. For bash scripts specifically, avoid `date` / `$(date)` for business date calculations unless explicitly required.
-
-#### Error Handling
-
-Use `set -euo pipefail` at the top of every script. Scripts must invoke bash explicitly to guarantee pipefail support — wrap the entire script body with `bash -s` or use a heredoc invocation (see Script Format above). Do not rely on the remote user's default login shell.
-
-**Important:** with `set -euo pipefail` active, a failed command causes immediate script exit — any `if [ $? -ne 0 ]` check placed *after* the command is **never reached**. Use a `trap` to emit failure logs instead:
-
-```bash
-set -euo pipefail
-
-trap 'echo "[ERROR] Script failed at line $LINENO — exit code $?"' ERR
-
-echo "[INFO] Starting ..."
-# ... commands ...
-echo "[INFO] Completed successfully"
-```
-
-The `trap ... ERR` fires on any command failure and logs the line number and exit code before the script exits. Do not use `if [ $? -ne 0 ]` after commands when `set -e` is active.
-
-* Validate critical commands explicitly.
-* Exit non-zero on failures.
-* Avoid silent failures.
-
-#### Logging
-
-Use clear logging:
-
-```bash
-echo "[INFO] ..."
-echo "[ERROR] ..."
-```
-
-Log: start, logical date, source/destination, completion, failure reason.
-
-#### File Operations
-
-* Validate file existence before transfer or processing.
-* Quote paths safely: `"$FILE_PATH"`
-
-#### FTP / SFTP / FTPS
-
-* Prefer non-interactive commands.
-* For `lftp`, use `set ssl:verify-certificate no` only when explicitly required by legacy systems.
-* Validate transfer results.
-* **FTP-SSL (`CONNTYPE2=FTP-SSL`):** use `ftps://` scheme and force SSL — never fall back to plain FTP:
-  ```bash
-  lftp -u "$RUSER","$RPASS" \
-      -e "set ftp:ssl-allow yes; set ftp:ssl-force yes; \
-          set ftp:passive-mode 1; \
-          mput -O \"$RPATH\" $LPATH; quit" \
-      "ftps://$RHOST"
-  ```
-  Using `ftp://` with only `set ftp:ssl-allow yes` allows a plain-FTP fallback — always add `set ftp:ssl-force yes` and use the `ftps://` scheme.
-
-#### SSHOperator Compatibility
-
-* Scripts must run correctly inside SSHOperator.
-* Avoid environment assumptions.
-* Use absolute paths whenever possible.
-
-#### Security
-
-* Never hardcode passwords.
-* Use Airflow Variables or Connections.
-* Avoid printing secrets to logs.
-* **Do not use `set cmd:verbose true` in `lftp` commands** when a password is passed in the connection string — verbose mode logs the full command including the password. Omit or replace with `set cmd:verbose false`.
-* Passwords retrieved via `{{ var.value['...'] }}` Jinja will appear in the Airflow "Rendered Template" task log — emit a `# WARNING: password visible in Airflow rendered template log` comment so operators are aware.
-
-#### Output Requirements
-
-* Produce complete runnable scripts.
-* All DAG files must be complete **profesional comments  (incl. header (before imports area) , task , dependencies)**
-* Do not generate pseudocode — every `lftp`, `aws`, or command block must be fully written out with all options; never use `...` as a placeholder.
-* Do not omit required variables.
-* Keep scripts enterprise-readable and maintainable.
-
-### PowerShell Guidelines
-
-Use for PowerShell scripts embedded in PsrpOperator tasks.
-
-#### General Rules
-
-* Generate production-ready PowerShell.
-* Use PowerShell-compatible syntax.
-* Scripts must be deterministic and rerun-safe.
-* Avoid interactive prompts.
-* Avoid GUI-dependent commands.
-* **Windows OS `TASKTYPE=Command` (`.bat` / `.cmd`):** wrap via `cmd /c` inside `powershell=r"""..."""` — do NOT use a bare `command=` string. Always include `$ErrorActionPreference = 'Stop'` and check `$LASTEXITCODE`:
-  ```python
-  PsrpOperator(
-      task_id='...',
-      psrp_conn_id='psrp_<nodeid>',
-      powershell=r"""
-  $ErrorActionPreference = 'Stop'
-  & cmd /c "F:\path\script.bat {{ ds_nodash }}"
-  if ($LASTEXITCODE -ne 0) {
-      Write-Host "[ERROR] Script failed: exit $LASTEXITCODE"
-      exit $LASTEXITCODE
-  }
-  """,
-      on_failure_callback=failure_callback,
-  )
-  ```
-
-#### Script Format
-
-Use an f-string triple-quoted string so that module-level globals can be interpolated into the script:
-
+PowerShell example:
 ```python
 powershell=f"""
 $ErrorActionPreference = 'Stop'
@@ -550,78 +423,49 @@ $RHost = "{_rhost}"
 """
 ```
 
-> Use `f"""..."""` (not `r"""..."""`) so Python interpolates `_`-prefixed globals. For Windows paths with backslashes, declare the global using double-backslashes or forward slashes (e.g. `_lpath = "D:\\\\app\\\\file.txt"` or `"D:/app/file.txt"`) so the interpolated value is correct inside the PowerShell script.
-
-#### Airflow Scheduling Semantics
-
-Follow the **Airflow Date/Time Best Practices** section (see above) for all date variable handling. For PowerShell scripts specifically, avoid `Get-Date` for business date calculations unless explicitly required.
-
-#### Control-M Migration Rules
-
-* Treat Control-M `%%ODATE` / `%%$ODATE` as `{{ ds_nodash }}` (YYYYMMDD) — consistent with the Variable Substitution Reference table. Do **not** substitute ODATE with bare `{{ logical_date }}`.
-* Ensure rerun/backfill behavior remains deterministic.
-* Preserve original scheduling semantics where possible.
-
 #### Error Handling
 
-Set `$ErrorActionPreference = 'Stop'` at the top of every script so that PowerShell cmdlet failures (non-terminating errors from `Copy-Item`, `Invoke-WebRequest`, etc.) are promoted to terminating exceptions. Then validate external executable exit codes:
-
-```powershell
-$ErrorActionPreference = 'Stop'
-
-# ... script body ...
-
-if ($LASTEXITCODE -ne 0) {
-    Write-Host "ERROR: ..."
-    exit 1
-}
-```
-
-Do not allow silent failures.
+| | Bash | PowerShell |
+|---|---|---|
+| Stop on error | `set -euo pipefail` | `$ErrorActionPreference = 'Stop'` |
+| Failure log | `trap 'echo "[ERROR] failed at line $LINENO — exit $?"' ERR` | `if ($LASTEXITCODE -ne 0) { Write-Host "[ERROR]..."; exit 1 }` |
+| Note | Do NOT use `if [ $? -ne 0 ]` after commands when `set -e` is active — it is never reached | PowerShell only promotes terminating exceptions with `'Stop'`; external exe codes must be checked manually |
 
 #### Logging
 
-Use `Write-Host "..."`. Log: start, logical date, source/destination, completion, failure reason.
+Log start, logical date, source/destination, completion, and failure reason.
+- Bash: `echo "[INFO] ..."` / `echo "[ERROR] ..."`
+- PowerShell: `Write-Host "[INFO] ..."` / `Write-Host "[ERROR] ..."`
+
+#### Date Variables
+
+Follow **Airflow Date/Time Best Practices** (see above). Do NOT use `date`/`$(date)` (bash) or `Get-Date` (PowerShell) for business date calculations unless explicitly required. `%%ODATE`/`%%$ODATE` → `{{ ds_nodash }}`.
 
 #### File Operations
 
 * Validate file existence before transfer or processing.
-* Use properly quoted Windows paths: `"D:\path\file.txt"`
-* **Wildcard paths:** If `$LPath` or `$RPath` contains `*` or `?`, use `-Path` without quotes so PowerShell expands the glob — double-quoted strings suppress wildcard expansion:
+* Bash: quote paths `"$FILE_PATH"`.
+* PowerShell: use `"D:\path\file.txt"`. For wildcard paths use unquoted `-Path $LPath` — double-quoted strings suppress glob expansion:
   ```powershell
-  # Wildcard upload — unquoted -Path
   Copy-Item -Path $LPath -Destination "\\$RHost\share\dest\" -Force
-  # Wildcard download — unquoted -Path
-  Copy-Item -Path "\\$RHost\share\$RPath" -Destination $LPath -Force
   ```
 
 #### FTP / SFTP / FTPS
 
-* Prefer `lftp` for FTP, SFTP, and FTPS transfers — it supports all three protocols (`ftp://`, `sftp://`, `ftps://` schemes).
-* For SFTP: `lftp -e "mirror/get/put ...; quit" sftp://host`
-* Use `set ssl:verify-certificate no` only for legacy environments when required.
-* Validate every transfer result.
-
-#### PsrpOperator Compatibility
-
-* Scripts must run correctly inside PsrpOperator.
-* Avoid assumptions about user profiles or session persistence.
-* Use absolute paths whenever possible.
+* **Bash:** use `lftp`. `CONNTYPE2=FTP-SSL` → `ftps://` scheme + `set ftp:ssl-force yes` — never use `ftp://` with only `ssl-allow yes` (allows plain-FTP fallback).
+  ```bash
+  lftp -u "$RUSER","$RPASS" \
+      -e "set ftp:ssl-allow yes; set ftp:ssl-force yes; set ftp:passive-mode 1; \
+          mput -O \"$RPATH\" $LPATH; quit" \
+      "ftps://$RHOST"
+  ```
+* **PowerShell:** use `lftp` for FTP/SFTP/FTPS — supports `ftp://`, `sftp://`, `ftps://`. `set ssl:verify-certificate no` only for legacy environments.
 
 #### Security
 
-* Never hardcode credentials.
-* Use Airflow Variables or Connections.
-* Do not print secrets in logs.
-* **Do not use `set cmd:verbose true` in `lftp` commands** when a password is interpolated in the connection string — verbose mode logs the full command including credentials. Omit or use `set cmd:verbose false`.
-* Passwords retrieved via `{{ var.value['...'] }}` Jinja will appear in the Airflow "Rendered Template" task log — emit a `# WARNING: password visible in Airflow rendered template log` comment so operators are aware.
-
-#### Output Requirements
-
-* Produce complete runnable PowerShell scripts.
-* Do not generate pseudocode — every `lftp`, command block, or transfer sequence must be fully written out with all options; never use `...` as a placeholder.
-* Do not omit required variables.
-* Keep scripts enterprise-readable and maintainable.
+* Never hardcode passwords. Use Airflow Variables or Connections.
+* Do NOT use `set cmd:verbose true` in `lftp` when a password is in the connection string — logs the full command. Omit or use `set cmd:verbose false`.
+* Passwords from `{{ var.value['...'] }}` appear in Airflow "Rendered Template" log — emit `# WARNING: password visible in Airflow rendered template log`.
 
 
 ## Reusable File Transfer DAG (Optional Mode)
@@ -933,152 +777,55 @@ Extract `FTP-*` variables from the Control-M job XML. For each active transfer s
 
 5. **Handle multiple transfers:** Build a bash/PowerShell loop if `FTP-TRANSFER_NUM > 1`
 
-##### FILE_TRANS → Unix→Unix / Unix→Windows (lftp template)
+##### FILE_TRANS → Unix→Unix / Unix→Windows (lftp)
 
-For `FTP-CONNTYPE2 ∈ {FTP, FTPS, SFTP}`:
+For `FTP-CONNTYPE2 ∈ {FTP, FTPS, SFTP}`. Script structure: `set -euo pipefail` + `trap` → assign vars from `FTP-*` → `lftp` command → log complete.
 
-```bash
-bash -s << 'BASH'
-set -euo pipefail
-trap 'echo "[ERROR] Transfer failed at line $LINENO — exit code $?"' ERR
+Key rules:
+- `PROTOCOL=$(echo "$CONNTYPE2" | tr '[:upper:]' '[:lower:]')` — lowercase for URI scheme
+- FTPS: add `set ftp:ssl-allow yes; set ftp:ssl-force yes;` — never `ftp://` with ssl-allow only (allows plain-FTP fallback)
+- Passive mode: `FTP-LPASSIVE=1` → `set ftp:passive-mode 1`
+- `FTP-TYPE{N}=I` (binary) → no extra flags; `FTP-TYPE{N}=A` (ASCII) → `-a` flag on `put`/`get`
+- `FTP-SRCOPT{N}=1` → append `rm "$LPATH"` after upload
+- Pre-compute `RDIR=$(dirname "$RPATH")` **outside** the `lftp -e` string — `$(...)` inside `-e` runs on the Airflow worker pod, not the remote host
+- **Wildcard paths** (`*` or `?` in LPATH/RPATH): use `mput`/`mget`, NOT `put`/`get` (lftp will not expand globs with single-file commands):
+  ```bash
+  RDIR=$(dirname "$RPATH")
+  # Upload wildcard
+  lftp -u "$RUSER","$RPASS" -e "cd \"$RDIR\"; mput $LPATH; quit" "$PROTOCOL://$RHOST"
+  # Download wildcard
+  lftp -u "$RUSER","$RPASS" -e "mget -O \"$LPATH\" $RPATH; quit" "$PROTOCOL://$RHOST"
+  ```
+- `RPASS` from `{{ var.value['FTP_RPASS_SECRET'] }}` — emit `# WARNING: password visible in Airflow rendered template log`
 
-LPATH="{{ FTP-LPATH{N} }}"
-RPATH="{{ FTP-RPATH{N} }}"
-RHOST="{{ FTP-RHOST }}"
-RUSER="{{ FTP-RUSER }}"
-RPASS="{{ var.value['FTP_RPASS_SECRET'] }}"
-# Lowercase protocol for URI scheme — FTP→ftp, FTPS→ftps, SFTP→sftp
-PROTOCOL=$(echo "{{ FTP-CONNTYPE2 }}" | tr '[:upper:]' '[:lower:]')
+##### FILE_TRANS → Unix→S3 (aws s3)
 
-echo "[INFO] Starting {{ FTP-UPLOAD{N}=1 ? 'upload' : 'download' }}"
-echo "[INFO] Local: $LPATH"
-echo "[INFO] Remote: $RHOST:$RPATH"
+For `FTP-CONNTYPE2=S3`. Script structure: `set -euo pipefail` + `trap` → assign vars → `aws s3` command → log complete.
 
-# Pre-compute remote dir/file outside lftp -e string to avoid nested substitution issues
-RDIR=$(dirname "$RPATH")
-RFILE=$(basename "$RPATH")
+Key rules:
+- Upload (`FTP-UPLOAD{N}=1`): `aws s3 cp "$LPATH" "s3://$S3_BUCKET$RPATH" --region "$S3_REGION" --profile "$AWS_PROFILE"`
+- Download: swap src/dest
+- `FTP-TYPE{N}=I` → add `--no-progress`
+- **Wildcard paths**: use `aws s3 sync` — `aws s3 cp` does not expand globs:
+  ```bash
+  aws s3 sync "$(dirname "$LPATH")" "s3://$S3_BUCKET/$(dirname "$RPATH")/" \
+      --include "$(basename "$LPATH")" --exclude "*" \
+      --region "$S3_REGION" --profile "$AWS_PROFILE"
+  ```
+- Credentials: Airflow Connections or `~/.aws/credentials`
 
-if [ "{{ FTP-UPLOAD{N} }}" = "1" ]; then
-    # Upload: local → remote
-    lftp -u "$RUSER","$RPASS" \
-        -e "set ftp:ssl-allow {{ FTP-CONNTYPE2=FTPS ? 'yes' : 'no' }}; \
-            {{ FTP-CONNTYPE2=FTPS ? 'set ftp:ssl-force yes;' : '' }} \
-            set ftp:passive-mode {{ FTP-LPASSIVE }}; \
-            cd \"$RDIR\"; put \"$LPATH\" -o \"$RFILE\"; \
-            quit" \
-        "$PROTOCOL://$RHOST"
-else
-    # Download: remote → local
-    lftp -u "$RUSER","$RPASS" \
-        -e "set ftp:ssl-allow {{ FTP-CONNTYPE2=FTPS ? 'yes' : 'no' }}; \
-            {{ FTP-CONNTYPE2=FTPS ? 'set ftp:ssl-force yes;' : '' }} \
-            set ftp:passive-mode {{ FTP-RPASSIVE }}; \
-            get \"$RPATH\" -o \"$LPATH\"; \
-            quit" \
-        "$PROTOCOL://$RHOST"
-fi
+##### FILE_TRANS → Unix→Azure (azcopy)
 
-echo "[INFO] Transfer complete"
-BASH
-```
+For `FTP-CONNTYPE2=Azure`. Script structure: `set -euo pipefail` + `trap` → assign vars → build `DEST_URI` → `azcopy copy` → log complete.
 
-> **Mode:** `FTP-TYPE{N}=I` (binary) → no flags; `FTP-TYPE{N}=A` (ASCII) → add `-a` flag to `put`/`get`
-> **Passive mode:** `FTP-LPASSIVE=1` → `set ftp:passive-mode 1`; `FTP-RPASSIVE=1` → same on remote side
-> **Post-action:** If `FTP-SRCOPT{N}=1` (delete), append `rm "$LPATH"` after upload; if `FTP-DSTOPT{N}=1`, append `rm` on destination
-> **Wildcard paths:** If `FTP-LPATH{N}` or `FTP-RPATH{N}` contains `*` or `?`, pre-compute the remote directory and switch to `mput`/`mget`:
-> ```bash
-> RDIR=$(dirname "$RPATH")   # pre-compute outside lftp -e string
-> # Upload wildcard
-> lftp -u "$RUSER","$RPASS" -e "cd \"$RDIR\"; mput $LPATH; quit" "$PROTOCOL://$RHOST"
-> # Download wildcard
-> lftp -u "$RUSER","$RPASS" -e "mget -O \"$LPATH\" $RPATH; quit" "$PROTOCOL://$RHOST"
-> ```
-> Do NOT use `get`/`put` with wildcard paths — lftp will not expand them. Do NOT put `$(dirname ...)` inside the lftp `-e` string — it runs on the Airflow worker pod, not the remote host.
-
-##### FILE_TRANS → Unix→S3 (aws s3 cp template)
-
-For `FTP-CONNTYPE2=S3`:
-
-```bash
-bash -s << 'BASH'
-set -euo pipefail
-trap 'echo "[ERROR] S3 transfer failed at line $LINENO — exit code $?"' ERR
-
-LPATH="{{ FTP-LPATH{N} }}"
-RPATH="{{ FTP-RPATH{N} }}"
-S3_BUCKET="{{ FTP-S3_BUCKET_NAME }}"
-S3_REGION="{{ FTP-S3_REGION | 'ap-southeast-1' }}"
-AWS_PROFILE="{{ FTP-AWS_PROFILE | 'default' }}"
-
-echo "[INFO] Starting {{ FTP-UPLOAD{N}=1 ? 'upload to S3' : 'download from S3' }}"
-echo "[INFO] Bucket: s3://$S3_BUCKET/$RPATH"
-
-if [ "{{ FTP-UPLOAD{N} }}" = "1" ]; then
-    # Upload: local → S3
-    aws s3 cp "$LPATH" "s3://$S3_BUCKET$RPATH" \
-        --region "$S3_REGION" \
-        --profile "$AWS_PROFILE" \
-        {{ FTP-TYPE{N}=I ? '--no-progress' : '' }}
-else
-    # Download: S3 → local
-    aws s3 cp "s3://$S3_BUCKET$RPATH" "$LPATH" \
-        --region "$S3_REGION" \
-        --profile "$AWS_PROFILE" \
-        {{ FTP-TYPE{N}=I ? '--no-progress' : '' }}
-fi
-
-echo "[INFO] S3 transfer complete"
-BASH
-```
-
-> **Credentials:** Use Airflow Connections or `~/.aws/credentials` (default profile)
-> **Binary mode:** `FTP-TYPE{N}=I` → add `--no-progress`; `FTP-TYPE{N}=A` → omit
-> **Wildcard paths:** If `FTP-LPATH{N}` or `FTP-RPATH{N}` contains `*` or `?`, use `aws s3 sync` instead of `aws s3 cp`:
-> ```bash
-> aws s3 sync "$(dirname "$LPATH")" "s3://$S3_BUCKET/$(dirname "$RPATH")/" \
->     --include "$(basename "$LPATH")" --exclude "*" \
->     --region "$S3_REGION" --profile "$AWS_PROFILE"
-> ```
-> `aws s3 cp` does not support wildcard expansion.
-
-##### FILE_TRANS → Unix→Azure (azcopy template)
-
-For `FTP-CONNTYPE2=Azure`:
-
-```bash
-bash -s << 'BASH'
-set -euo pipefail
-trap 'echo "[ERROR] Azure transfer failed at line $LINENO — exit code $?"' ERR
-
-LPATH="{{ FTP-LPATH{N} }}"
-RPATH="{{ FTP-RPATH{N} }}"
-STORAGE_ACCOUNT="{{ FTP-AZURE_STORAGE_ACCOUNT }}"
-CONTAINER="{{ FTP-AZURE_CONTAINER }}"
-SAS_TOKEN="{{ var.value['AZURE_SAS_TOKEN_SECRET'] }}"
-
-DEST_URI="https://${STORAGE_ACCOUNT}.blob.core.windows.net/${CONTAINER}${RPATH}?${SAS_TOKEN}"
-
-echo "[INFO] Starting {{ FTP-UPLOAD{N}=1 ? 'upload to Azure' : 'download from Azure' }}"
-echo "[INFO] Container: $STORAGE_ACCOUNT/$CONTAINER"
-
-if [ "{{ FTP-UPLOAD{N} }}" = "1" ]; then
-    # Upload: local → Azure
-    azcopy copy "$LPATH" "$DEST_URI"
-else
-    # Download: Azure → local
-    azcopy copy "$DEST_URI" "$LPATH"
-fi
-
-echo "[INFO] Azure transfer complete"
-BASH
-```
-
-> **Auth:** SAS token stored in Airflow Variable, never hardcoded
-> **Wildcard paths:** If `FTP-LPATH{N}` contains `*` or `?`, use `--include-pattern` instead of passing the glob directly:
-> ```bash
-> azcopy copy "$(dirname "$LPATH")/*" "$DEST_URI" --include-pattern "$(basename "$LPATH")"
-> ```
-> Quoted glob strings are not expanded by the shell — pass the pattern via `--include-pattern`.
+Key rules:
+- `DEST_URI="https://${STORAGE_ACCOUNT}.blob.core.windows.net/${CONTAINER}${RPATH}?${SAS_TOKEN}"`
+- Upload: `azcopy copy "$LPATH" "$DEST_URI"`; Download: swap args
+- `SAS_TOKEN` from Airflow Variable — never hardcoded
+- **Wildcard paths**: use `--include-pattern` — shell does not expand globs in quoted strings:
+  ```bash
+  azcopy copy "$(dirname "$LPATH")/*" "$DEST_URI" --include-pattern "$(basename "$LPATH")"
+  ```
 
 ##### FILE_TRANS → Windows source (PowerShell template)
 
@@ -1256,56 +1003,6 @@ Write-Host "[INFO] File found: $FilePath"
 )
 ```
 
-##### Concrete Example: Windows FileWatch with PsrpOperator (mockup)
-
-Given:
-- NODEID = `serverwin1` (Windows, from Node ID Information table)
-- FILE_PATH = `S:\data\processed\report_%%$ODATE..txt`
-- TIME_LIMIT = 5 minutes (300 seconds)
-- INT_FILE_SEARCHES = 60 seconds
-
-**Generated PsrpOperator task:**
-
-```python
-# Control-M job: MONITOR_DATA_001 | NODEID: serverwin1 | RUN_AS: datauser
-# FILE_PATH: S:\data\processed\report_{{ ds_nodash }}..txt
-# TIME_LIMIT: 5 minutes (300 seconds) | INT_FILE_SEARCHES: 60 seconds
-app1234_testapp_task_monitor_data_001_d = PsrpOperator(
-    task_id='app1234-testapp-task_monitor_data_001-d',
-    psrp_conn_id='psrp_serverwin1',  # NODEID=serverwin1 → psrp_serverwin1
-    # RUN_AS: datauser
-    powershell=r"""
-$ErrorActionPreference = 'Stop'
-$FilePath = "S:\data\processed\report_{{ ds_nodash }}..txt"
-$TimeoutSec = 300  # 5 minutes
-$PollSec = 60  # INT_FILE_SEARCHES
-$Elapsed = 0
-Write-Host "[INFO] Waiting for file: $FilePath"
-while (-not (Test-Path $FilePath)) {
-    if ($Elapsed -ge $TimeoutSec) {
-        Write-Host "[ERROR] File not found after ${TimeoutSec}s: $FilePath"
-        exit 1
-    }
-    Write-Host "[INFO] File not yet present. Elapsed: ${Elapsed}s / ${TimeoutSec}s"
-    Start-Sleep -Seconds $PollSec
-    $Elapsed += $PollSec
-}
-Write-Host "[INFO] File found: $FilePath"
-""",
-    wsman_options={"ssl": False},
-    on_failure_callback=failure_callback,
-)
-```
-
-**Key implementation points:**
-- ✅ NODEID=serverwin1 (Windows) → **Use `PsrpOperator` NOT `FileSensor`**
-- ✅ FILE_PATH starts with `S:\` (Windows drive) → Remote Windows file requires PsrpOperator
-- ✅ `psrp_conn_id='psrp_serverwin1'` derived from NODEID.lower()
-- ✅ `%%$ODATE` replaced with `{{ ds_nodash }}`
-- ✅ `TIME_LIMIT=5` (minutes) → 300 seconds
-- ✅ `INT_FILE_SEARCHES=60` (seconds) → $PollSec
-- ✅ PowerShell with `$ErrorActionPreference = 'Stop'` for error handling
-
 ### 4. APPL_TYPE = `AWS`
 - Check variables `AWS-*`
 - If `SERVICE_TYPE=STEP` → use `StepFunctionStartExecutionOperator` + `StepFunctionExecutionSensor`
@@ -1368,37 +1065,34 @@ from airflow.providers.amazon.aws.sensors.step_function import StepFunctionExecu
 The condition name equals the **source job's own name** plus a status suffix.  
 This means: the predecessor emits its name as the outcond token; the successor waits on it as incond.
 
-| Status suffix | Count | Notes |
-|---------------|------:|-------|
-| `ENDED-OK`    | 58,982 | Dominant — normal successful completion |
-| `ENDED`       | 100   | Completion regardless of exit code |
-| `END-OK`      | 37    | Legacy/typo variant of `ENDED-OK` |
-| `ENED-OK`     | 2     | Typo variant |
+| Status suffix | Notes |
+|---------------|-------|
+| `ENDED-OK`    | Dominant — normal successful completion |
+| `ENDED`       | Completion regardless of exit code |
+| `END-OK`      | Legacy/typo variant of `ENDED-OK` |
+| `ENED-OK`     | Typo variant |
 
 #### Non-standard / custom tokens
 
-| Variant | Count | Example | Meaning |
-|---------|------:|---------|---------|
-| `<NAME>X-ENDED-OK` | ~270 | `AFT_OFSAA_MANUAL_D_00010X-ENDED-OK` | Aliased name — condition references a *renamed* or *alternate* job token, not the actual FROM node name |
-| `<NAME>-RERUN` | 5 | `RT_OBMS_FMS_D0010-RERUN` | Rerun-specific gate |
-| `<NAME>-M2F` | ~10 | `RT_NEWMUREX_DTMREP_D0010-M2F` | Monday-to-Friday schedule variant |
-| `<NAME>-SAT` | ~4 | `RT_NEWMUREX_DTMREP_D0025-SAT` | Saturday run variant |
-| `<NAME>-SUN` | ~4 | `RT_NEWMUREX_DTMREP_D0015-SUN` | Sunday run variant |
-| `<NAME>-SPECIFIC` | 1 | `RT_NEWMUREX_FRPT_EOD1_1850-SPECIFIC` | Special/manual run |
-| `<NAME>-ENDED-OK-<NUM>` | ~3 | `RT_AFT_S1PTTRECCBSD005-ENDED-OK-969` | Numbered instance (cyclic job variant) |
+| Variant | Example | Meaning |
+|---------|---------|---------|
+| `<NAME>X-ENDED-OK` | `AFT_OFSAA_MANUAL_D_00010X-ENDED-OK` | Aliased name — references a renamed/alternate job token, not the actual FROM node |
+| `<NAME>-RERUN` | `RT_OBMS_FMS_D0010-RERUN` | Rerun-specific gate |
+| `<NAME>-M2F` | `RT_NEWMUREX_DTMREP_D0010-M2F` | Monday-to-Friday schedule variant |
+| `<NAME>-SAT` / `-SUN` | `RT_NEWMUREX_DTMREP_D0025-SAT` | Weekend run variant |
+| `<NAME>-SPECIFIC` | `RT_NEWMUREX_FRPT_EOD1_1850-SPECIFIC` | Special/manual run |
+| `<NAME>-ENDED-OK-<NUM>` | `RT_AFT_S1PTTRECCBSD005-ENDED-OK-969` | Numbered instance (cyclic job variant) |
 
-**Key insight for migration:** Non-standard tokens cannot be auto-generated from the job name — they must be preserved verbatim.
+**Key insight:** Non-standard tokens cannot be auto-generated from the job name — preserve verbatim.
 
 ---
 
 ### 2. AND / OR Gate Logic (`and_or` field)
 
-| Value | Count | % | Semantics |
-|-------|------:|---|-----------|
-| `A`   | 58,823 | 99.4% | **AND** — all predecessor conditions must be satisfied |
-| `O`   | 330   | 0.6% | **OR** — any one predecessor condition is sufficient |
+- `A` (AND, default) — all predecessor conditions must be satisfied
+- `O` (OR, rare) — any one predecessor condition is sufficient → use `trigger_rule=TriggerRule.ONE_SUCCESS`
 
-AND is the default. When a job has multiple predecessors, assume AND unless `and_or = "O"` is explicit.
+AND is the default. Assume AND unless `and_or = "O"` is explicit.
 
 ---
 
