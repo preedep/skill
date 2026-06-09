@@ -60,13 +60,50 @@ env = dev
 
 ### Test script
 
-`test_run.sh` cleans the output folder, runs the conversion, and verifies DAG syntax in one step:
+`run_tests.sh` runs one or more test cases end-to-end: invokes the skill via Claude, then syntax- and lint-checks every generated DAG with `python` + `pyflakes`. Token usage and cost are reported per case and totalled in the summary.
 
 ```bash
-./test_run.sh
+# Run all 10 test cases
+./run_tests.sh
+
+# Run a specific file
+./run_tests.sh input/test_case1.xml
+
+# Run by keyword (matches against the filename, case-insensitive)
+./run_tests.sh --scenario prepost
+./run_tests.sh --scenario wildcard
+./run_tests.sh --scenario filewatch
+./run_tests.sh --scenario os
+./run_tests.sh --scenario aws
+./run_tests.sh --scenario ftpssl
+./run_tests.sh --scenario cyclic
+./run_tests.sh --scenario multi
+./run_tests.sh --scenario reusable
+
+# Run multiple keywords at once (any match)
+./run_tests.sh --scenario wildcard aws
+
+# List available test cases
+./run_tests.sh --list
 ```
 
-Edit variables at the top of `test_run.sh` to change input file, company, app_id, app_code, and env.
+#### Test cases
+
+| # | File | Keyword | Feature tested |
+|---|------|---------|----------------|
+| 1 | `test_case1_filetrans_prepost.xml` | `prepost` | FILE_TRANS with pre-command + post-command |
+| 2 | `test_case2_filetrans_wildcard.xml` | `wildcard` | FILE_TRANS with wildcard file paths (`*.DAT`, `*.*`) |
+| 3 | `test_case3_filetrans_filewatch.xml` | `filewatch` | FILE_TRANS with `FTP-UPLOAD=3` (file watch mode) |
+| 4 | `test_case4_filewatch.xml` | `filewatch` | `FileWatch` jobs → `PsrpOperator` polling (Windows) |
+| 5 | `test_case5_os_jobs.xml` | `os` | OS jobs → `SSHOperator` |
+| 6 | `test_case6_aws_stepfunction.xml` | `aws` | AWS Step Function + S3 upload |
+| 7 | `test_case7_filetrans_ftpssl.xml` | `ftpssl` | FILE_TRANS FTP-SSL, wildcard, PRECOMM mkdir, `%%D` variable |
+| 8 | `test_case8_cyclic.xml` | `cyclic` | `CYCLIC=1 INTERVAL=15M`, two parallel OS→FILE_TRANS→OS chains |
+| 9 | `test_case9_multi_schedule.xml` | `multi` | 2 FILE_TRANS jobs at different `TIMEFROM` → must produce 2 DAGs |
+| 10 | `test_case10_reusable_dag.xml` | `reusable` | Mode B: reusable unix DAG + caller DAG (`TriggerDagRunOperator` + `ExternalTaskSensor`) |
+
+Output DAGs land in `output/<case-name>/`. Logs are written to `logs/`.  
+A case passes only when both `python <dag>.py` and `pyflakes <dag>.py` exit 0.
 
 ### Output
 
