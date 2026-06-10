@@ -247,7 +247,7 @@ for line in sys.stdin:
     dag_files=()
     while IFS= read -r -d '' f; do
         dag_files+=("$f")
-    done < <(find "${OUTPUT_DIR}" -maxdepth 1 -name "*.py" -newer "${input_path}" -print0 2>/dev/null)
+    done < <(find "${OUTPUT_DIR}" -name "*.py" -newer "${input_path}" -print0 2>/dev/null)
 
     if [ ${#dag_files[@]} -eq 0 ]; then
         fail "Case ${IDX} — no .py output generated in ${OUTPUT_DIR}/"
