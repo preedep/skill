@@ -405,7 +405,53 @@ _schedule = "30 22 * * *"  # TIMEFROM=2230; DAYS=ALL — always declare as _sche
 ```
    > **`_schedule` must always be a module-level variable.** Never pass a literal string directly to `schedule=` inside `DAG(...)`. Derive the value from `TIMEFROM` + folder suffix and assign it to `_schedule` first, then reference it: `schedule=_schedule`. This applies to `timedelta` schedules too: `_schedule = timedelta(minutes=15)`.
 
-5. `success_callback` / `failure_callback` using `send_email` + `pendulum.now('Asia/Bangkok')`
+5. `success_callback` / `failure_callback` — **always use this canonical template**:
+   ```python
+   def success_callback(context):
+       dag_id = context['dag'].dag_id
+       task_id = context['task_instance'].task_id
+       execution_date = pendulum.now('Asia/Bangkok')
+
+       subject = f"DAG {dag_id} - Task {task_id} succeeded"
+       body = f"""
+       <h3>DAG Task Succeeded</h3>
+       <p><strong>DAG:</strong> {dag_id}</p>
+       <p><strong>Task:</strong> {task_id}</p>
+       <p><strong>Execution Time:</strong> {execution_date}</p>
+       """
+
+       if _enable_email_notification_success:
+           from airflow.utils.email import send_email
+           send_email(to=_email_list, subject=subject, html_content=body)
+
+
+   def failure_callback(context):
+       dag_id = context['dag'].dag_id
+       task_id = context['task_instance'].task_id
+       execution_date = pendulum.now('Asia/Bangkok')
+       exception = context.get('exception', 'Unknown error')
+
+       subject = f"DAG {dag_id} - Task {task_id} failed"
+       body = f"""
+       <h3>DAG Task Failed</h3>
+       <p><strong>DAG:</strong> {dag_id}</p>
+       <p><strong>Task:</strong> {task_id}</p>
+       <p><strong>Execution Time:</strong> {execution_date}</p>
+       <p><strong>Error:</strong> {exception}</p>
+       """
+
+       if _enable_email_notification_fail:
+           from airflow.utils.email import send_email
+           send_email(to=_email_list, subject=subject, html_content=body)
+   ```
+   **Rules:**
+   - Always extract `dag_id`, `task_id`, `execution_date` from `context` — never hardcode the DAG name.
+   - Always capture `exception = context.get('exception', 'Unknown error')` in `failure_callback` and include it in the body.
+   - `send_email` import must be **inside** the `if` guard, not at the top of the function.
+   - The HTML body uses `<h3>` + `<p><strong>` structure.
+   - For FILE_TRANS DAGs, append job-relevant context variables to the body (e.g. `_rhost`, `_lpath`, `_rpath`) so the recipient can identify the transfer without opening Airflow.
+   - Never include secret variables (`_rpass_secret`, passwords) in the email body.
+
 6. `local_tz`, `default_args`, `dag = DAG(...)`
 7. Tasks (grouped by section with `####` banners)
 8. Dependencies
@@ -416,14 +462,7 @@ _schedule = "30 22 * * *"  # TIMEFROM=2230; DAYS=ALL — always declare as _sche
   > **Self-check before writing imports:** List every operator/sensor class you will instantiate. Only import those classes. If you find no `EmptyOperator(...)` call in your task list, do NOT add the `EmptyOperator` import.
   - `ExternalTaskSensor` → `from airflow.providers.standard.sensors.external_task import ExternalTaskSensor` (Airflow 3.x) — never from `airflow.sensors.external_task` (deprecated).
   - `TriggerRule` → `from airflow.task.trigger_rule import TriggerRule` (Airflow 3.x) — **ONLY if** `AND_OR="O"` appears in any INCOND definition. Check all INCOND tags first; if none have `AND_OR="O"`, do NOT import. Never import from `airflow.utils.trigger_rule` (deprecated — redirects to `airflow.task.trigger_rule` with a warning) or `airflow.models.trigger_rule` (does not exist in Airflow 3.x).
-  - `send_email` → `from airflow.utils.email import send_email` — **ONLY if** callbacks are enabled. Place the import **inside** the `if` guard, not at the top of the callback or at module level:
-    ```python
-    def success_callback(context):
-        if _enable_email_notification_success:
-            from airflow.utils.email import send_email
-            send_email(...)
-    ```
-    An import placed before the `if` guard fires on every callback invocation regardless of the flag — this is wrong.
+  - `send_email` → `from airflow.utils.email import send_email` — **ONLY if** callbacks are enabled. Place the import **inside** the `if` guard at the bottom of each callback (see canonical template in step 5). An import placed before the `if` guard fires on every callback invocation regardless of the flag — this is wrong.
   - Do not import operators/sensors unless a task uses them. Avoid importing unused symbols.
 - **All inputs lowercased:** `company`, `app_id`, `app_code`, `folder_name`, `env`, all tag values, task IDs, Python variable names, and the DAG ID components must always be `.lower()` — regardless of how they are provided as input. Even if the user passes `APP_ID=APP1234`, store and emit it as `app1234`. This includes `_project` in the variables zone — it must always be the lowercased `app_id` value (e.g. `_project = "ap1002"`, never `"AP1002"`).
 - **Task Python variable name:** `<app_id>_<app_code>_task_<job_name>_<period>` — all lowercase, `-` replaced with `_` (e.g. `app1234_testapp_task_rt_rb2cm005_d`). The `task_id` string uses `-` per the Naming convention table.
