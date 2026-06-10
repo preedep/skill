@@ -247,8 +247,18 @@ Apply these principles consistently across all generated scripts (bash, PowerShe
 
 4. **Wire dependencies:** Build task dependencies from Control-M `INCOND`/`OUTCOND` using **INCOND Resolution Algorithm**:
    - If predecessor is in this folder → direct `>>` dependency
-   - If predecessor is external → add `ExternalTaskSensor`
+   - If predecessor is in a **different folder, same application** (`app_id` + `app_code` match) → `ExternalTaskSensor`
+   - If predecessor is in a **different application** (cross-app) → **do NOT use `ExternalTaskSensor`**. Cross-app dependencies must be resolved via file-based signalling at deployment time. Emit the following instead:
+     ```python
+     # TODO: cross-app dependency — RT_XXX_ENDED-OK originates from a different application.
+     # ExternalTaskSensor is not allowed across applications.
+     # Implement file-based trigger: upstream app writes a sentinel file; this task polls for it
+     # using SFTPSensor or a custom FileSensor before proceeding.
+     # Sentinel path (suggested): /airflow/signals/<upstream_app>/<condition_name>.done
+     ```
    - If `AND_OR="O"` with multiple conditions → use `trigger_rule=TriggerRule.ONE_SUCCESS`
+
+   > **How to identify cross-app:** If the INCOND name contains a different `app_id` or belongs to a Control-M folder from a different application team, treat it as cross-app. When in doubt, flag as cross-app and emit the TODO — it is safer to under-wire than to create hidden cross-app coupling.
 
 5. **Syntax check:** Validate any embedded shell scripts (SSHOperator) or PowerShell (PsrpOperator):
    - Ensure backslashes are escaped correctly in f-strings (double `\\` for Windows paths)
@@ -331,7 +341,15 @@ Follow the company DAG (focus on Airflow 3.x) templates — see [`templates/`](t
 
 ### File structure order
 1. **Header comment** — Control-M source documentation (DAG ID, folder, jobs, skill version)
-2. Imports (`pendulum`, `send_email`, `logging`)
+2. Imports (`logging`, `pendulum`, Airflow operators/sensors) — **all** non-smtplib imports go here, in this order:
+   ```python
+   import logging
+   import pendulum
+   from airflow import DAG
+   from airflow.providers.ssh.operators.ssh import SSHOperator
+   # ... other operators/sensors as needed
+   ```
+   > **Hard gate:** Do NOT place any `from airflow import ...` or `from airflow.providers...` import after the logging banner. All Airflow imports must appear in step 2, before the banner. If you find yourself writing an Airflow import after the `###################### logging ######################` line, stop and move it up to step 2.
 3. Logging setup — **always include both lines**, separated by a `###################### logging ######################` banner:
    ```python
    ###################### logging ######################
@@ -342,15 +360,50 @@ Follow the company DAG (focus on Airflow 3.x) templates — see [`templates/`](t
    **Critical:** `import smtplib` must appear **inside** this logging section (immediately after the `####` banner), never in the top-level imports block (step 2). Do NOT move it up with the other imports — its placement here is intentional and required.
    > **Violation to avoid:** Do NOT write `import smtplib` in step 2 (imports block). If you find yourself writing `import smtplib` before the logging banner, stop and move it here.
    > **Hard gate before writing any DAG file:** Scan your generated output for `import smtplib`. It must appear exactly once, on the line immediately after the `###################### logging ######################` banner. If it is absent, or appears anywhere else (top-level imports, inside a function, after the variables zone), do NOT write the file — fix the placement first and re-check.
+   > **pyflakes suppression:** `smtplib` is imported for its side-effect (enabling debug logging) and is never called directly. pyflakes will flag it as unused. Always add `_ = smtplib` on the line immediately after `logging.getLogger("airflow.utils.email").setLevel(logging.DEBUG)` to suppress this warning without using `# noqa`.
+
+   **Canonical logging block — always use this exact block, adjusting only the operator lines that apply:**
+   ```python
+   ###################### logging ######################
+   import smtplib
+   logging.getLogger("smtplib").setLevel(logging.DEBUG)
+   logging.getLogger("airflow.utils.email").setLevel(logging.DEBUG)
+   _ = smtplib
+   # SSHOperator — include when DAG contains SSHOperator tasks
+   logging.getLogger("airflow.providers.ssh.operators.ssh").setLevel(logging.DEBUG)
+   logging.getLogger("airflow.providers.ssh.hooks.ssh").setLevel(logging.DEBUG)
+   # PsrpOperator — include when DAG contains PsrpOperator tasks
+   logging.getLogger("airflow.providers.microsoft.psrp.operators.psrp").setLevel(logging.DEBUG)
+   logging.getLogger("airflow.providers.microsoft.psrp.hooks.psrp").setLevel(logging.DEBUG)
+   ```
+
+   **Which lines to include:**
+   - Always include the `smtplib` + `airflow.utils.email` lines (every DAG).
+   - Add the `ssh` lines only if the DAG contains at least one `SSHOperator` task.
+   - Add the `psrp` lines only if the DAG contains at least one `PsrpOperator` task.
+   - Never add both sets if only one operator type is used — unused logger lines are noise.
+
+   **What each logger exposes in the Airflow task log:**
+
+   | Logger | What it logs |
+   |---|---|
+   | `airflow.providers.ssh.operators.ssh` | Command dispatch, exit code, timeout events |
+   | `airflow.providers.ssh.hooks.ssh` | SSH connection negotiation, channel open/close, key exchange |
+   | `airflow.providers.microsoft.psrp.operators.psrp` | PowerShell command dispatch, runspace state, exit code |
+   | `airflow.providers.microsoft.psrp.hooks.psrp` | WinRM connection setup, PSRP protocol messages, auth |
 4. Variables zone — all config as module-level `_` prefixed variables, preceded by a `###################### variables zone ######################` banner:
 
 ```Example
 ###################### variables zone ######################
-_company = "##COMPANY##"
-_project = "##PROJECT##"
-_env = "##ENV##"
+_company  = "##COMPANY##"
+_project  = "##PROJECT##"
+_app_code = "##APP_CODE##"
 _dag_name = "##DAG_NAME##"
+_env      = "##ENV##"
+_active   = False
+_schedule = "30 22 * * *"  # TIMEFROM=2230; DAYS=ALL — always declare as _schedule, never hardcode in DAG()
 ```
+   > **`_schedule` must always be a module-level variable.** Never pass a literal string directly to `schedule=` inside `DAG(...)`. Derive the value from `TIMEFROM` + folder suffix and assign it to `_schedule` first, then reference it: `schedule=_schedule`. This applies to `timedelta` schedules too: `_schedule = timedelta(minutes=15)`.
 
 5. `success_callback` / `failure_callback` using `send_email` + `pendulum.now('Asia/Bangkok')`
 6. `local_tz`, `default_args`, `dag = DAG(...)`
@@ -361,6 +414,7 @@ _dag_name = "##DAG_NAME##"
 - **Imports:** only import operators/sensors that are actually used in the DAG. **Before writing any import, verify that at least one task in the generated DAG actually instantiates that operator/sensor class.** If no task uses it, do not import it — unused imports are a code smell and must not appear in generated output.
   - `EmptyOperator` → `from airflow.providers.standard.operators.empty import EmptyOperator` (Airflow 3.x) — never from `airflow.operators.empty` (deprecated). **Only import if the DAG contains at least one `EmptyOperator(...)` task instance.**
   > **Self-check before writing imports:** List every operator/sensor class you will instantiate. Only import those classes. If you find no `EmptyOperator(...)` call in your task list, do NOT add the `EmptyOperator` import.
+  - `ExternalTaskSensor` → `from airflow.providers.standard.sensors.external_task import ExternalTaskSensor` (Airflow 3.x) — never from `airflow.sensors.external_task` (deprecated).
   - `TriggerRule` → `from airflow.task.trigger_rule import TriggerRule` (Airflow 3.x) — **ONLY if** `AND_OR="O"` appears in any INCOND definition. Check all INCOND tags first; if none have `AND_OR="O"`, do NOT import. Never import from `airflow.utils.trigger_rule` (deprecated — redirects to `airflow.task.trigger_rule` with a warning) or `airflow.models.trigger_rule` (does not exist in Airflow 3.x).
   - `send_email` → `from airflow.utils.email import send_email` — **ONLY if** callbacks are enabled. Place the import **inside** the `if` guard, not at the top of the callback or at module level:
     ```python
@@ -374,12 +428,35 @@ _dag_name = "##DAG_NAME##"
 - **All inputs lowercased:** `company`, `app_id`, `app_code`, `folder_name`, `env`, all tag values, task IDs, Python variable names, and the DAG ID components must always be `.lower()` — regardless of how they are provided as input. Even if the user passes `APP_ID=APP1234`, store and emit it as `app1234`. This includes `_project` in the variables zone — it must always be the lowercased `app_id` value (e.g. `_project = "ap1002"`, never `"AP1002"`).
 - **Task Python variable name:** `<app_id>_<app_code>_task_<job_name>_<period>` — all lowercase, `-` replaced with `_` (e.g. `app1234_testapp_task_rt_rb2cm005_d`). The `task_id` string uses `-` per the Naming convention table.
 - `default_args` must include: `owner`, `depends_on_past`, `start_date`, `timezone`, `retries=3`, `retry_delay`, `retry_exponential_backoff`, `max_retry_delay`, `email_on_failure=False`, `email_on_retry=False`
+  - **`"owner"` must be `_company`** — never `_project`. The owner field identifies the team, not the application.
+  - **`"timezone"` must be a plain string** — never pass `local_tz` (a `pendulum.Timezone` object). Airflow 3.x Pydantic serialization cannot handle the object type and raises `PydanticSerializationError`. Always write: `"timezone": "Asia/Bangkok"`. Use `local_tz` only for `pendulum.datetime(...)` calls in `start_date`.
+  - **`"start_date"` must use `pendulum.datetime(..., tz=local_tz)`** — never `datetime(...)` from the standard library. Do not import `from datetime import datetime, timedelta`; use `pendulum.datetime()` and `pendulum.duration()` throughout.
+  - **`"retry_delay"` and `"max_retry_delay"` must use `pendulum.duration(...)`** — never `timedelta(...)`.
+- **`_tags` must reference variables** — always `_tags = [_company, _project, _app_code, _dag_name, _env]`. Never hardcode strings like `["nix", "apxxxx", ...]` — they silently diverge if a variable is changed.
 - DAG ID constructed as: `_company + '-' + _project + '-' + _app_code + '-' + _dag_name + '-' + _env`
 - **Default paused:** `_active = False` — all generated DAGs must be paused on creation by default. Always set `is_paused_upon_creation=not _active` (evaluates to `True` when `_active=False`). Never set `_active = True` in generated output — activation is a manual deployment step.
 - DAG-level callbacks: `on_success_callback=success_callback if _enable_email_notification_success else None` and `on_failure_callback=failure_callback if _enable_email_notification_fail else None`
 - **`dag=dag` is removed in Airflow 3.x** — do not pass `dag=dag` as a keyword argument to any operator or sensor. Declare all tasks inside a `with DAG(...) as dag:` context manager instead.
+- **`SSHOperator` and `PsrpOperator` must always include `cmd_timeout` and `conn_timeout`:**
+  ```python
+  SSHOperator(
+      ...,
+      cmd_timeout=1800,   # seconds — kill remote command if it runs longer than 30 min
+      conn_timeout=60,    # seconds — fail fast if SSH connection cannot be established
+  )
+  PsrpOperator(
+      ...,
+      cmd_timeout=1800,
+      conn_timeout=60,
+  )
+  ```
+  Never omit these — without them the operator inherits provider defaults which may be indefinite, causing silent hangs that block the worker slot.
 - **`# RUN_AS` comment:** always write the actual RUN_AS username from the Control-M job (e.g. `# RUN_AS: ctrlm`) — never use a placeholder like `# RUN_AS comment`.
 - **Module-level variables — declare all extracted Control-M values as globals:** Every path, host, user, and translated `%%` variable extracted from Control-M must be declared as a `_`-prefixed module-level variable in the variables zone. Scripts reference these globals by using an f-string (`f"""..."""`) for the `command=` or `powershell=` argument — never embed values directly in the script body. For Windows paths inside f-strings use double-backslashes (`\\`) or forward slashes to avoid backslash interpretation.
+- **f-string vs plain string in the variables zone:** Use a **plain string** (not f-string) for any module-level variable whose value contains only Airflow Jinja templates (`{{ ds_nodash }}`, `{{ logical_date.strftime(...) }}`, etc.) with no Python globals being interpolated. An f-string with no `{python_expr}` placeholders is flagged by pyflakes as `f-string is missing placeholders`. The rule is:
+  - Variable declaration with Jinja only → plain string: `_rpath = "/data/{{ ds_nodash }}/*.txt"`
+  - `command=` / `powershell=` argument that injects Python globals into the script body → f-string: `command=f"""... LPATH="{_lpath}" ..."""`
+  > **Self-check:** Before writing any `f"..."` in the variables zone, ask: "Am I interpolating a Python `_variable` here?" If the answer is no — only Airflow `{{ }}` tokens — use a plain string.
 
 ### Script Guidelines (Shell + PowerShell)
 
@@ -433,9 +510,72 @@ $RHost = "{_rhost}"
 
 #### Logging
 
-Log start, logical date, source/destination, completion, and failure reason.
-- Bash: `echo "[INFO] ..."` / `echo "[ERROR] ..."`
-- PowerShell: `Write-Host "[INFO] ..."` / `Write-Host "[ERROR] ..."`
+Every script must emit structured log lines covering the full execution lifecycle. **Never print secret values** — mask passwords and tokens before logging.
+
+##### Required log points (both Bash and PowerShell)
+
+| Stage | What to log |
+|---|---|
+| **Start** | Job name, logical date (`{{ ds_nodash }}`), source path, destination host+path, operator (upload/download/watch) |
+| **Pre-command** | Command name and parameters (no secrets) |
+| **Transfer** | File count / file names being transferred |
+| **Post-command** | Command name and parameters (no secrets) |
+| **Completion** | "DONE" + job name + logical date |
+| **Error** | "ERROR" + failed step + line number (Bash) or error message (PowerShell) |
+
+##### Secret masking rules
+
+- **Never** log `$RPASS`, `$Password`, or any variable that holds a secret value.
+- Assign the secret to a variable with a name ending in `_SECRET` or `_PASS` — do not echo that variable.
+- Log the **remote user** (`$RUSER` / `$RUser`) but never the credential alongside it.
+
+##### Bash logging template
+
+```bash
+# --- header ---
+echo "[INFO] ============================================================"
+echo "[INFO] Job      : <job_name>"
+echo "[INFO] Date     : {{ ds_nodash }}"
+echo "[INFO] Source   : $LPATH"
+echo "[INFO] Dest     : ftps://$RHOST$RPATH"
+echo "[INFO] User     : $RUSER  (password suppressed)"
+echo "[INFO] ============================================================"
+
+# --- per-step ---
+echo "[INFO] STEP <N>: <description>"
+
+# --- completion ---
+echo "[INFO] DONE <job_name> — {{ ds_nodash }}"
+
+# --- error (via trap) ---
+trap 'echo "[ERROR] <job_name> failed at line $LINENO — exit $?"' ERR
+```
+
+##### PowerShell logging template
+
+```powershell
+# --- header ---
+Write-Host "[INFO] ============================================================"
+Write-Host "[INFO] Job      : <job_name>"
+Write-Host "[INFO] Date     : {{ ds_nodash }}"
+Write-Host "[INFO] Source   : $LPath"
+Write-Host "[INFO] Dest     : ftps://$RHost$RPath"
+Write-Host "[INFO] User     : $RUser  (password suppressed)"
+Write-Host "[INFO] ============================================================"
+
+# --- per-step ---
+Write-Host "[INFO] STEP <N>: <description>"
+
+# --- completion ---
+Write-Host "[INFO] DONE <job_name> — {{ ds_nodash }}"
+
+# --- error ---
+# Check $LASTEXITCODE after every external command and log before exit:
+if ($LASTEXITCODE -ne 0) {
+    Write-Host "[ERROR] <job_name> failed at step <N> — exit $LASTEXITCODE"
+    exit 1
+}
+```
 
 #### Date Variables
 
@@ -444,8 +584,53 @@ Follow **Airflow Date/Time Best Practices** (see above). Do NOT use `date`/`$(da
 #### File Operations
 
 * Validate file existence before transfer or processing.
+* **Always log file size** for any file operation (upload, download, rename, move, delete). This is essential for diagnosing empty files, partial transfers, and size mismatches.
 * Bash: quote paths `"$FILE_PATH"`.
 * PowerShell: use `"D:\path\file.txt"`. For wildcard paths use unquoted `-Path $LPath` — double-quoted strings suppress glob expansion:
+
+##### File size logging — Bash
+
+```bash
+# Single file — before transfer
+FILE_SIZE=$(stat -c%s "$LPATH" 2>/dev/null || echo "unknown")
+echo "[INFO] File      : $LPATH"
+echo "[INFO] Size      : ${FILE_SIZE} bytes"
+
+# Wildcard — list all matched files with sizes before transfer
+echo "[INFO] Source files:"
+ls -lh $LPATH 2>/dev/null || echo "[WARN] No files matched: $LPATH"
+
+# After transfer — confirm destination exists and log its size
+DEST_SIZE=$(stat -c%s "$NEWNAME" 2>/dev/null || echo "unknown")
+echo "[INFO] Dest file : $NEWNAME"
+echo "[INFO] Dest size : ${DEST_SIZE} bytes"
+```
+
+##### File size logging — PowerShell
+
+```powershell
+# Single file — before transfer
+$FileInfo = Get-Item -Path $LPath -ErrorAction SilentlyContinue
+if ($FileInfo) {
+    Write-Host "[INFO] File      : $($FileInfo.FullName)"
+    Write-Host "[INFO] Size      : $($FileInfo.Length) bytes"
+} else {
+    Write-Host "[WARN] File not found: $LPath"
+}
+
+# Wildcard — list all matched files with sizes before transfer
+Write-Host "[INFO] Source files:"
+Get-Item -Path $LPath -ErrorAction SilentlyContinue | ForEach-Object {
+    Write-Host "[INFO]   $($_.Name)  $($_.Length) bytes"
+}
+
+# After transfer — confirm destination exists and log its size
+$DestInfo = Get-Item -Path $DestPath -ErrorAction SilentlyContinue
+if ($DestInfo) {
+    Write-Host "[INFO] Dest file : $($DestInfo.FullName)"
+    Write-Host "[INFO] Dest size : $($DestInfo.Length) bytes"
+}
+```
   ```powershell
   Copy-Item -Path $LPath -Destination "\\$RHost\share\dest\" -Force
   ```
@@ -455,17 +640,40 @@ Follow **Airflow Date/Time Best Practices** (see above). Do NOT use `date`/`$(da
 * **Bash:** use `lftp`. `CONNTYPE2=FTP-SSL` → `ftps://` scheme + `set ftp:ssl-force yes` — never use `ftp://` with only `ssl-allow yes` (allows plain-FTP fallback).
   ```bash
   lftp -u "$RUSER","$RPASS" \
-      -e "set ftp:ssl-allow yes; set ftp:ssl-force yes; set ftp:passive-mode 1; \
+      -e "set ssl:ca-file ''; \
+          set ssl:verify-certificate no; \
+          set ftp:ssl-allow yes; \
+          set ftp:ssl-force yes; \
+          set ftp:ssl-implicit true; \
+          set ftp:passive-mode yes; \
+          set cmd:verbose false; \
+          set xfer:log on; \
           mput -O \"$RPATH\" $LPATH; quit" \
-      "ftps://$RHOST"
+      "ftps://$RHOST:$RPORT"
   ```
-* **PowerShell:** use `lftp` for FTP/SFTP/FTPS — supports `ftp://`, `sftp://`, `ftps://`. `set ssl:verify-certificate no` only for legacy environments.
+  > **`set ssl:ca-file ''`** — clears the cert file path so lftp does not attempt to load `<hostname>.crt` from disk, which causes a hang when the file does not exist.
+  > **`set ftp:ssl-implicit true`** — required for port 990/991 (implicit TLS — SSL wraps the connection from byte 1). Without it lftp uses explicit TLS (STARTTLS) and the handshake fails with `gnutls_handshake: An unexpected TLS packet was received`.
+  > **Port in URL** — always append `:$RPORT` to the `ftps://` URL so lftp connects to the correct port.
+
+* **Port:** Always declare `_rport` as a module-level variable and pass it explicitly via `-p $RPORT`:
+  | Protocol | Standard port | **This environment** |
+  |---|---|---|
+  | FTP (plain) | 21 | 21 |
+  | FTPS (`FTP-CONNTYPE2=FTP-SSL`) | 990/991 | **991** (all servers — Windows and MVS) |
+  | SFTP | 22 | 22 |
+  > **`CONNTYPE2=FTP-SSL` → always use `_rport = 991`** regardless of target OS (Windows server or MVS mainframe). Never use port 21 for FTPS.
+
+* **`ssl:verify-certificate`:** lftp attempts to load `<hostname>.crt` at TLS handshake time. If the file does not exist the connection hangs. Always include `set ssl:verify-certificate no` for internal/legacy hosts that do not have CA-signed certificates. For hosts with valid certs, omit this setting.
+
+* **PowerShell:** use `lftp` for FTP/SFTP/FTPS — supports `ftp://`, `sftp://`, `ftps://`. Apply the same `-c` form and port rules above.
 
 #### Security
 
 * Never hardcode passwords. Use Airflow Variables or Connections.
-* Do NOT use `set cmd:verbose true` in `lftp` when a password is in the connection string — logs the full command. Omit or use `set cmd:verbose false`.
-* Passwords from `{{ var.value['...'] }}` appear in Airflow "Rendered Template" log — emit `# WARNING: password visible in Airflow rendered template log`.
+* Do NOT use `set cmd:verbose true` in `lftp` — it prints the full FTP protocol trace including `PASS <password>` in plain text. Always use `set cmd:verbose false; set xfer:log on`. `xfer:log on` logs each transferred file with its size and duration without exposing credentials.
+* Passwords from `{{ var.value['...'] }}` appear in the Airflow "Rendered Template" log — emit `# WARNING: password visible in Airflow rendered template log` on the line where the variable is assigned.
+* **Never echo a secret variable** — do not log `$RPASS`, `$Password`, or any variable holding a token or credential at any log point. Log the username only with the note `(password suppressed)`.
+* In PowerShell, do not use `-Verbose` on `lftp` or any command that receives a password as an argument.
 
 
 ## Reusable File Transfer DAG (Optional Mode)
@@ -768,8 +976,8 @@ Extract `FTP-*` variables from the Control-M job XML. For each active transfer s
    
    # Transfer 1: Upload
    $Output = & lftp -u "$RUser","$RPass" \
-       -e "set ftp:ssl-allow yes; set ftp:ssl-force yes; cd /mnt/data/output/{{ ds_nodash }}/folder; \
-           put \"$LPath\"; quit" \
+       -e "set ftp:ssl-allow yes; set ftp:ssl-force yes; set cmd:verbose false; set xfer:log on; \
+           cd /mnt/data/output/{{ ds_nodash }}/folder; put \"$LPath\"; quit" \
        "ftps://$RHost" 2>&1
    ```
    
@@ -792,9 +1000,19 @@ Key rules:
   ```bash
   RDIR=$(dirname "$RPATH")
   # Upload wildcard
-  lftp -u "$RUSER","$RPASS" -e "cd \"$RDIR\"; mput $LPATH; quit" "$PROTOCOL://$RHOST"
+  lftp -u "$RUSER","$RPASS" \
+      -e "set ssl:ca-file ''; set ssl:verify-certificate no; \
+          set ftp:ssl-allow yes; set ftp:ssl-force yes; set ftp:ssl-implicit true; \
+          set ftp:passive-mode yes; set cmd:verbose false; set xfer:log on; \
+          cd \"$RDIR\"; mput $LPATH; quit" \
+      "ftps://$RHOST:$RPORT"
   # Download wildcard
-  lftp -u "$RUSER","$RPASS" -e "mget -O \"$LPATH\" $RPATH; quit" "$PROTOCOL://$RHOST"
+  lftp -u "$RUSER","$RPASS" \
+      -e "set ssl:ca-file ''; set ssl:verify-certificate no; \
+          set ftp:ssl-allow yes; set ftp:ssl-force yes; set ftp:ssl-implicit true; \
+          set ftp:passive-mode yes; set cmd:verbose false; set xfer:log on; \
+          mget -O \"$LPATH\" $RPATH; quit" \
+      "ftps://$RHOST:$RPORT"
   ```
 - `RPASS` from `{{ var.value['FTP_RPASS_SECRET'] }}` — emit `# WARNING: password visible in Airflow rendered template log`
 
@@ -1051,6 +1269,35 @@ from airflow.providers.amazon.aws.sensors.step_function import StepFunctionExecu
 > **`state_machine_input`** (not `input`) is the correct parameter for `StepFunctionStartExecutionOperator`. Pass the payload as a plain string — Airflow renders Jinja inside it at task execution time. Do NOT use `json.dumps()` with Jinja expressions — `json.dumps()` runs at DAG parse time and produces a literal string containing the Jinja template tags, which is correct here, but it adds unnecessary complexity and escaping risk. Build the payload string directly.
 > **`import json`** is not needed — omit it unless other code in the DAG uses it.
 
+
+### 5. APPL_TYPE = `AIRFLOWV2` — **not supported**
+
+`AIRFLOWV2` jobs are not migrated. When encountered, emit a warning comment and skip the job:
+
+```python
+# TODO: APPL_TYPE=AIRFLOWV2 is not supported — job <JOBNAME> skipped.
+#       These jobs trigger an existing Airflow DAG from Control-M (%%UCM-DAGID=<dag_id>).
+#       Migration requires a manual decision on whether to retain, remove, or re-wire this dependency.
+```
+
+Do not generate any operator or task for this job type.
+
+---
+
+### 6. APPL_TYPE = `BIM` — **not supported**
+
+`BIM` (Business Impact Management) jobs are Control-M SLA monitoring placeholders (`TASKTYPE=Dummy`) with no executable logic. They are not migrated. When encountered, emit a warning comment and skip the job:
+
+```python
+# TODO: APPL_TYPE=BIM is not supported — job <JOBNAME> skipped.
+#       BIM jobs are SLA monitoring placeholders (TASKTYPE=Dummy); they carry no executable logic.
+#       Re-implement SLA requirements (%%BIM-DUE_TIME, %%BIM-SENSITIVITY) using Airflow SLA miss
+#       callbacks or external monitoring at deployment time.
+```
+
+Do not generate any operator or task for this job type.
+
+---
 
 ## Dependency Mapping — INCOND/OUTCOND Pattern Reference
 
