@@ -678,29 +678,31 @@ if ($DestInfo) {
 
 * **Bash:** use `lftp` with `-e` form. Pass credentials and connection inside the `-e` string using `open -u`. This ensures all `set` commands are evaluated before the connection is established.
 
-  **Standard FTPS template (`CONNTYPE2=FTP-SSL`):**
+  **Standard FTPS template (`CONNTYPE2=FTP-SSL` — explicit TLS / AUTH TLS):**
   ```bash
   lftp \
       -e "set ssl:verify-certificate false; \
           set ssl:ca-file /dev/null; \
-          set ssl:priority \"NORMAL:+VERS-TLS1.0:+VERS-TLS1.1:%COMPAT\"; \
+          set ftp:ssl-force true; \
+          set ftp:ssl-auth TLS; \
           set ftp:ssl-protect-data true; \
-          set ftp:ssl-protect-list true; \
           set ftp:passive-mode yes; \
           set cmd:verbose false; \
           set xfer:log on; \
-          open -u '$RUSER','$RPASS' ftps://$RHOST:$RPORT; \
-          mput -O \"$RPATH\" $LPATH; \
+          open -u $RUSER,$RPASS ftp://$RHOST:$RPORT; \
+          put -a \"$LPATH\" -o \"$RPATH\"; \
           bye"
   ```
 
-  > **`open -u USER,PASS URL` inside `-e`** — credentials are passed inside the `-e` command string, not as the outer `-u` flag. This ensures `set` options take effect before `open` connects.
-  > **`ssl:ca-file /dev/null`** — points CA bundle to `/dev/null` so lftp cannot load any CA cert file or per-host `<hostname>.crt` from disk. Use `/dev/null`, not `''` (empty string does not suppress loading).
-  > **`ssl:priority "NORMAL:+VERS-TLS1.0:+VERS-TLS1.1:%COMPAT"`** — allows legacy TLS versions required by older servers (MVS mainframe, Windows Server 2008). Without this, GnuTLS on modern Linux rejects the handshake with `An unexpected TLS packet was received`.
-  > **`ftp:ssl-protect-data true` + `ftp:ssl-protect-list true`** — enables TLS on both the data and control channels.
+  > **`FTP-CONNTYPE2=FTP-SSL` = explicit TLS (AUTH TLS), not implicit TLS.** The server sends a plain FTP `220` banner first, then upgrades to TLS after `AUTH TLS`. Use `ftp://` URL (not `ftps://`) and force the upgrade with `ftp:ssl-force true` + `ftp:ssl-auth TLS`.
+  > **`ftps://` = implicit TLS** — SSL wraps the connection from byte 1. Do NOT use `ftps://` for `FTP-CONNTYPE2=FTP-SSL` in this environment — the MVS and Windows servers on port 991 all use explicit TLS and will fail with `gnutls_handshake: An unexpected TLS packet was received` if `ftps://` is used.
+  > **`open -u USER,PASS URL` inside `-e`** — credentials passed inside `-e` so all `set` commands take effect before `open` connects.
+  > **`ssl:ca-file /dev/null`** — prevents lftp loading `<hostname>.crt` from disk. Use `/dev/null`, not `''` (empty string does not suppress loading).
+  > **`ftp:ssl-force true`** — rejects connection if server refuses AUTH TLS (no plain-FTP fallback).
+  > **`ftp:ssl-protect-data true`** — encrypts data channel in addition to control channel.
   > **`ssl:verify-certificate false`** — disables cert verification for internal/legacy hosts.
   > **`bye` not `quit`** — use `bye` to close the lftp session cleanly.
-  > **Never use `ftp:ssl-implicit`** — this variable does not exist in lftp and will produce `no such variable` error.
+  > **Never use `ftp:ssl-implicit`** — this variable does not exist in lftp.
 
 * **Port:** Always declare `_rport` as a module-level variable and pass it in the `open` URL:
   | Protocol | Standard port | **This environment** |
@@ -711,6 +713,26 @@ if ($DestInfo) {
   > **`CONNTYPE2=FTP-SSL` → always use `_rport = 991`** regardless of target OS. Never use port 21 for FTPS.
 
 * **PowerShell:** use `lftp` for FTP/SFTP/FTPS — apply the same `-e` form and parameter set above.
+
+* **MVS mainframe destinations (`FTP-ROSTYPE=MVS`):** MVS FTP requires dataset names wrapped in single quotes for fully-qualified addressing. Without quotes the server prepends the user's HLQ and returns `501 Invalid data set name` or `550 Unable to create data set`. **Always build the quoted path as a shell variable before the lftp call** — do not embed single quotes inside the `-e "..."` string directly (single quotes inside a double-quoted bash string are literal but cause quoting confusion):
+  ```bash
+  # Build quoted MVS dataset name outside the lftp -e string
+  RPATH_QUOTED="'${RPATH}'"
+
+  lftp \
+      -e "... \
+          put -a \"$LPATH\" -o \"$RPATH_QUOTED\"; \
+          bye"
+  ```
+  If `FTP-RECFM` and `FTP-LRECL` are present, send `quote SITE` **before** the put:
+  ```bash
+  RPATH_QUOTED="'${RPATH}'"
+  lftp \
+      -e "... \
+          quote SITE RECFM=$RECFM LRECL=$LRECL; \
+          put -a \"$LPATH\" -o \"$RPATH_QUOTED\"; \
+          bye"
+  ```
 
 * **Debug logging around lftp:** Always emit these lines immediately before and after every lftp call so failures can be investigated without re-running:
   ```bash
@@ -1064,30 +1086,30 @@ Key rules:
 - **Wildcard paths** (`*` or `?` in LPATH/RPATH): use `mput`/`mget`, NOT `put`/`get` (lftp will not expand globs with single-file commands):
   ```bash
   RDIR=$(dirname "$RPATH")
-  # Upload wildcard (FTPS)
+  # Upload wildcard (FTPS — explicit TLS)
   lftp \
       -e "set ssl:verify-certificate false; \
           set ssl:ca-file /dev/null; \
-          set ssl:priority \"NORMAL:+VERS-TLS1.0:+VERS-TLS1.1:%COMPAT\"; \
+          set ftp:ssl-force true; \
+          set ftp:ssl-auth TLS; \
           set ftp:ssl-protect-data true; \
-          set ftp:ssl-protect-list true; \
           set ftp:passive-mode yes; \
           set cmd:verbose false; \
           set xfer:log on; \
-          open -u '$RUSER','$RPASS' ftps://$RHOST:$RPORT; \
+          open -u $RUSER,$RPASS ftp://$RHOST:$RPORT; \
           cd \"$RDIR\"; mput $LPATH; \
           bye"
-  # Download wildcard (FTPS)
+  # Download wildcard (FTPS — explicit TLS)
   lftp \
       -e "set ssl:verify-certificate false; \
           set ssl:ca-file /dev/null; \
-          set ssl:priority \"NORMAL:+VERS-TLS1.0:+VERS-TLS1.1:%COMPAT\"; \
+          set ftp:ssl-force true; \
+          set ftp:ssl-auth TLS; \
           set ftp:ssl-protect-data true; \
-          set ftp:ssl-protect-list true; \
           set ftp:passive-mode yes; \
           set cmd:verbose false; \
           set xfer:log on; \
-          open -u '$RUSER','$RPASS' ftps://$RHOST:$RPORT; \
+          open -u $RUSER,$RPASS ftp://$RHOST:$RPORT; \
           mget -O \"$LDIR\" $RPATH; \
           bye"
   ```
