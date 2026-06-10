@@ -682,6 +682,8 @@ if ($DestInfo) {
   ```bash
   lftp \
       -e "set ssl:verify-certificate false; \
+          set ssl:ca-file /dev/null; \
+          set ssl:priority \"NORMAL:+VERS-TLS1.0:+VERS-TLS1.1:%COMPAT\"; \
           set ftp:ssl-protect-data true; \
           set ftp:ssl-protect-list true; \
           set ftp:passive-mode yes; \
@@ -693,8 +695,10 @@ if ($DestInfo) {
   ```
 
   > **`open -u USER,PASS URL` inside `-e`** — credentials are passed inside the `-e` command string, not as the outer `-u` flag. This ensures `set` options take effect before `open` connects.
-  > **`ftp:ssl-protect-data true` + `ftp:ssl-protect-list true`** — enables TLS on both the data and control channels. Use these instead of `ftp:ssl-force yes` which can fail on port 991.
-  > **`ssl:verify-certificate false`** — disables cert verification for internal/legacy hosts. Prevents lftp from trying to load `<hostname>.crt` from disk which causes a hang if the file is absent.
+  > **`ssl:ca-file /dev/null`** — points CA bundle to `/dev/null` so lftp cannot load any CA cert file or per-host `<hostname>.crt` from disk. Use `/dev/null`, not `''` (empty string does not suppress loading).
+  > **`ssl:priority "NORMAL:+VERS-TLS1.0:+VERS-TLS1.1:%COMPAT"`** — allows legacy TLS versions required by older servers (MVS mainframe, Windows Server 2008). Without this, GnuTLS on modern Linux rejects the handshake with `An unexpected TLS packet was received`.
+  > **`ftp:ssl-protect-data true` + `ftp:ssl-protect-list true`** — enables TLS on both the data and control channels.
+  > **`ssl:verify-certificate false`** — disables cert verification for internal/legacy hosts.
   > **`bye` not `quit`** — use `bye` to close the lftp session cleanly.
   > **Never use `ftp:ssl-implicit`** — this variable does not exist in lftp and will produce `no such variable` error.
 
@@ -707,6 +711,23 @@ if ($DestInfo) {
   > **`CONNTYPE2=FTP-SSL` → always use `_rport = 991`** regardless of target OS. Never use port 21 for FTPS.
 
 * **PowerShell:** use `lftp` for FTP/SFTP/FTPS — apply the same `-e` form and parameter set above.
+
+* **Debug logging around lftp:** Always emit these lines immediately before and after every lftp call so failures can be investigated without re-running:
+  ```bash
+  # Before lftp — print TLS settings and connection target (never print password)
+  echo "[INFO] lftp version : $(lftp --version 2>&1 | head -1)"
+  echo "[DEBUG] lftp settings: ssl:verify-certificate=false ssl:ca-file=/dev/null ssl:priority=COMPAT ftp:ssl-protect-data=true ftp:ssl-protect-list=true ftp:passive-mode=yes"
+  echo "[DEBUG] lftp target  : ftps://$RHOST:$RPORT — user=$RUSER (password suppressed)"
+
+  lftp \
+      -e "set ssl:verify-certificate false; \
+          ..."
+
+  # After lftp — confirm success (set -e will abort before this if lftp exits non-zero)
+  echo "[INFO] lftp transfer complete"
+  ```
+  > Print `lftp --version` so the Airflow log captures the exact build on the worker pod — this is critical when debugging TLS handshake failures that are version-dependent.
+  > Never print `$RPASS` or `$Password` in any debug line — only log user with `(password suppressed)`.
 
 #### Security
 
@@ -1046,6 +1067,8 @@ Key rules:
   # Upload wildcard (FTPS)
   lftp \
       -e "set ssl:verify-certificate false; \
+          set ssl:ca-file /dev/null; \
+          set ssl:priority \"NORMAL:+VERS-TLS1.0:+VERS-TLS1.1:%COMPAT\"; \
           set ftp:ssl-protect-data true; \
           set ftp:ssl-protect-list true; \
           set ftp:passive-mode yes; \
@@ -1057,6 +1080,8 @@ Key rules:
   # Download wildcard (FTPS)
   lftp \
       -e "set ssl:verify-certificate false; \
+          set ssl:ca-file /dev/null; \
+          set ssl:priority \"NORMAL:+VERS-TLS1.0:+VERS-TLS1.1:%COMPAT\"; \
           set ftp:ssl-protect-data true; \
           set ftp:ssl-protect-list true; \
           set ftp:passive-mode yes; \
