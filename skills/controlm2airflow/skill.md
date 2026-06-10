@@ -637,35 +637,37 @@ if ($DestInfo) {
 
 #### FTP / SFTP / FTPS
 
-* **Bash:** use `lftp`. `CONNTYPE2=FTP-SSL` → `ftps://` scheme + `set ftp:ssl-force yes` — never use `ftp://` with only `ssl-allow yes` (allows plain-FTP fallback).
+* **Bash:** use `lftp` with `-e` form. Pass credentials and connection inside the `-e` string using `open -u`. This ensures all `set` commands are evaluated before the connection is established.
+
+  **Standard FTPS template (`CONNTYPE2=FTP-SSL`):**
   ```bash
-  lftp -u "$RUSER","$RPASS" \
-      -e "set ssl:ca-file ''; \
-          set ssl:verify-certificate no; \
-          set ftp:ssl-allow yes; \
-          set ftp:ssl-force yes; \
-          set ftp:ssl-implicit true; \
+  lftp \
+      -e "set ssl:verify-certificate false; \
+          set ftp:ssl-protect-data true; \
+          set ftp:ssl-protect-list true; \
           set ftp:passive-mode yes; \
           set cmd:verbose false; \
           set xfer:log on; \
-          mput -O \"$RPATH\" $LPATH; quit" \
-      "ftps://$RHOST:$RPORT"
+          open -u '$RUSER','$RPASS' ftps://$RHOST:$RPORT; \
+          mput -O \"$RPATH\" $LPATH; \
+          bye"
   ```
-  > **`set ssl:ca-file ''`** — clears the cert file path so lftp does not attempt to load `<hostname>.crt` from disk, which causes a hang when the file does not exist.
-  > **`set ftp:ssl-implicit true`** — required for port 990/991 (implicit TLS — SSL wraps the connection from byte 1). Without it lftp uses explicit TLS (STARTTLS) and the handshake fails with `gnutls_handshake: An unexpected TLS packet was received`.
-  > **Port in URL** — always append `:$RPORT` to the `ftps://` URL so lftp connects to the correct port.
 
-* **Port:** Always declare `_rport` as a module-level variable and pass it explicitly via `-p $RPORT`:
+  > **`open -u USER,PASS URL` inside `-e`** — credentials are passed inside the `-e` command string, not as the outer `-u` flag. This ensures `set` options take effect before `open` connects.
+  > **`ftp:ssl-protect-data true` + `ftp:ssl-protect-list true`** — enables TLS on both the data and control channels. Use these instead of `ftp:ssl-force yes` which can fail on port 991.
+  > **`ssl:verify-certificate false`** — disables cert verification for internal/legacy hosts. Prevents lftp from trying to load `<hostname>.crt` from disk which causes a hang if the file is absent.
+  > **`bye` not `quit`** — use `bye` to close the lftp session cleanly.
+  > **Never use `ftp:ssl-implicit`** — this variable does not exist in lftp and will produce `no such variable` error.
+
+* **Port:** Always declare `_rport` as a module-level variable and pass it in the `open` URL:
   | Protocol | Standard port | **This environment** |
   |---|---|---|
   | FTP (plain) | 21 | 21 |
   | FTPS (`FTP-CONNTYPE2=FTP-SSL`) | 990/991 | **991** (all servers — Windows and MVS) |
   | SFTP | 22 | 22 |
-  > **`CONNTYPE2=FTP-SSL` → always use `_rport = 991`** regardless of target OS (Windows server or MVS mainframe). Never use port 21 for FTPS.
+  > **`CONNTYPE2=FTP-SSL` → always use `_rport = 991`** regardless of target OS. Never use port 21 for FTPS.
 
-* **`ssl:verify-certificate`:** lftp attempts to load `<hostname>.crt` at TLS handshake time. If the file does not exist the connection hangs. Always include `set ssl:verify-certificate no` for internal/legacy hosts that do not have CA-signed certificates. For hosts with valid certs, omit this setting.
-
-* **PowerShell:** use `lftp` for FTP/SFTP/FTPS — supports `ftp://`, `sftp://`, `ftps://`. Apply the same `-c` form and port rules above.
+* **PowerShell:** use `lftp` for FTP/SFTP/FTPS — apply the same `-e` form and parameter set above.
 
 #### Security
 
@@ -967,18 +969,21 @@ Extract `FTP-*` variables from the Control-M job XML. For each active transfer s
    Generate PowerShell:
    
    # Pre-command: mkdir (create destination directory)
-   $Output = & lftp -u "$RUser","$RPass" \
-       -e "mkdir /mnt/data/output/{{ ds_nodash }}/folder; quit" \
-       "ftps://$RHost" 2>&1
+   $Output = & lftp `
+       -e "set ssl:verify-certificate false; set ftp:ssl-protect-data true; set ftp:ssl-protect-list true; `
+           set cmd:verbose false; set xfer:log on; `
+           open -u '$RUser','$RPass' ftps://${RHost}:$RPort; `
+           mkdir /mnt/data/output/{{ ds_nodash }}/folder; bye" 2>&1
    if ($LASTEXITCODE -ne 0) {
        Write-Host "[ERROR] mkdir failed: $Output"; exit 1
    }
    
    # Transfer 1: Upload
-   $Output = & lftp -u "$RUser","$RPass" \
-       -e "set ftp:ssl-allow yes; set ftp:ssl-force yes; set cmd:verbose false; set xfer:log on; \
-           cd /mnt/data/output/{{ ds_nodash }}/folder; put \"$LPath\"; quit" \
-       "ftps://$RHost" 2>&1
+   $Output = & lftp `
+       -e "set ssl:verify-certificate false; set ftp:ssl-protect-data true; set ftp:ssl-protect-list true; `
+           set ftp:passive-mode yes; set cmd:verbose false; set xfer:log on; `
+           open -u '$RUser','$RPass' ftps://${RHost}:$RPort; `
+           cd /mnt/data/output/{{ ds_nodash }}/folder; put \"$LPath\"; bye" 2>&1
    ```
    
    **Critical:** Always include pre-commands and post-commands in the script flow; do NOT skip them even if they seem simple (mkdir, rm, etc.)
@@ -991,28 +996,36 @@ For `FTP-CONNTYPE2 ∈ {FTP, FTPS, SFTP}`. Script structure: `set -euo pipefail`
 
 Key rules:
 - `PROTOCOL=$(echo "$CONNTYPE2" | tr '[:upper:]' '[:lower:]')` — lowercase for URI scheme
-- FTPS: add `set ftp:ssl-allow yes; set ftp:ssl-force yes;` — never `ftp://` with ssl-allow only (allows plain-FTP fallback)
-- Passive mode: `FTP-LPASSIVE=1` → `set ftp:passive-mode 1`
+- FTPS: use `ftp:ssl-protect-data true` + `ftp:ssl-protect-list true` + `ssl:verify-certificate false` inside `-e`; never `ftp://` (allows plain-FTP fallback)
+- Passive mode: `FTP-LPASSIVE=1` → `set ftp:passive-mode yes`
 - `FTP-TYPE{N}=I` (binary) → no extra flags; `FTP-TYPE{N}=A` (ASCII) → `-a` flag on `put`/`get`
 - `FTP-SRCOPT{N}=1` → append `rm "$LPATH"` after upload
 - Pre-compute `RDIR=$(dirname "$RPATH")` **outside** the `lftp -e` string — `$(...)` inside `-e` runs on the Airflow worker pod, not the remote host
 - **Wildcard paths** (`*` or `?` in LPATH/RPATH): use `mput`/`mget`, NOT `put`/`get` (lftp will not expand globs with single-file commands):
   ```bash
   RDIR=$(dirname "$RPATH")
-  # Upload wildcard
-  lftp -u "$RUSER","$RPASS" \
-      -e "set ssl:ca-file ''; set ssl:verify-certificate no; \
-          set ftp:ssl-allow yes; set ftp:ssl-force yes; set ftp:ssl-implicit true; \
-          set ftp:passive-mode yes; set cmd:verbose false; set xfer:log on; \
-          cd \"$RDIR\"; mput $LPATH; quit" \
-      "ftps://$RHOST:$RPORT"
-  # Download wildcard
-  lftp -u "$RUSER","$RPASS" \
-      -e "set ssl:ca-file ''; set ssl:verify-certificate no; \
-          set ftp:ssl-allow yes; set ftp:ssl-force yes; set ftp:ssl-implicit true; \
-          set ftp:passive-mode yes; set cmd:verbose false; set xfer:log on; \
-          mget -O \"$LPATH\" $RPATH; quit" \
-      "ftps://$RHOST:$RPORT"
+  # Upload wildcard (FTPS)
+  lftp \
+      -e "set ssl:verify-certificate false; \
+          set ftp:ssl-protect-data true; \
+          set ftp:ssl-protect-list true; \
+          set ftp:passive-mode yes; \
+          set cmd:verbose false; \
+          set xfer:log on; \
+          open -u '$RUSER','$RPASS' ftps://$RHOST:$RPORT; \
+          cd \"$RDIR\"; mput $LPATH; \
+          bye"
+  # Download wildcard (FTPS)
+  lftp \
+      -e "set ssl:verify-certificate false; \
+          set ftp:ssl-protect-data true; \
+          set ftp:ssl-protect-list true; \
+          set ftp:passive-mode yes; \
+          set cmd:verbose false; \
+          set xfer:log on; \
+          open -u '$RUSER','$RPASS' ftps://$RHOST:$RPORT; \
+          mget -O \"$LDIR\" $RPATH; \
+          bye"
   ```
 - `RPASS` from `{{ var.value['FTP_RPASS_SECRET'] }}` — emit `# WARNING: password visible in Airflow rendered template log`
 
@@ -1063,11 +1076,17 @@ Write-Host "[INFO] Starting {{ FTP-UPLOAD{N}=1 ? 'upload' : 'download' }}"
 Write-Host "[INFO] Local: $LPath"
 Write-Host "[INFO] Remote: ${RHost}:${RPath}"
 
-# Use lftp for FTP/FTPS/SFTP transfers from Windows agent
-$Output = & lftp -u "$RUser","$RPass" `
-    -e "set ftp:ssl-allow {{ FTP-CONNTYPE2=FTPS ? 'yes' : 'no' }}; {{ FTP-CONNTYPE2=FTPS ? 'set ftp:ssl-force yes;' : '' }} `
-        {{ FTP-UPLOAD{N}=1 ? 'put \"'+$LPath+'\" -o \"'+$RPath+'\";' : 'get \"'+$RPath+'\" -o \"'+$LPath+'\";' }} quit" `
-    "{{ FTP-CONNTYPE2 | lower }}://$RHost" 2>&1
+# Use lftp for FTP/FTPS/SFTP transfers from Windows agent (FTPS shown — adjust open URL scheme for FTP/SFTP)
+$Output = & lftp `
+    -e "set ssl:verify-certificate false; `
+        set ftp:ssl-protect-data true; `
+        set ftp:ssl-protect-list true; `
+        set ftp:passive-mode yes; `
+        set cmd:verbose false; `
+        set xfer:log on; `
+        open -u '$RUser','$RPass' ftps://${RHost}:$RPort; `
+        {{ FTP-UPLOAD{N}=1 ? 'put \"'+$LPath+'\" -o \"'+$RPath+'\"' : 'get \"'+$RPath+'\" -o \"'+$LPath+'\"' }}; `
+        bye" 2>&1
 if ($LASTEXITCODE -ne 0) {
     Write-Host "[ERROR] Transfer failed: $Output"
     exit 1
