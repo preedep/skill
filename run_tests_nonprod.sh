@@ -134,16 +134,38 @@ if $REUSABLE; then
     CASE_LOG="${LOG_DIR}/${CASE_LABEL}_${TIMESTAMP}.log"
     STREAM_LOG="${LOG_DIR}/${CASE_LABEL}_${TIMESTAMP}_stream.jsonl"
 
-    # parse key=value params
-    declare -A P
-    for kv in "${REUSABLE_PARAMS[@]}"; do
+    # parse key=value params (bash 3 compatible — no associative arrays)
+    P_dag_name=""; P_ssh_conn_id=""; P_protocol=""; P_rhost=""; P_rport=""
+    P_ruser=""; P_rpass_var=""; P_lpath=""; P_rpath=""
+    P_transfer_type=""; P_file_type=""; P_rostype=""; P_schedule=""
+    P_recfm=""; P_lrecl=""
+
+    for kv in "${REUSABLE_PARAMS[@]+"${REUSABLE_PARAMS[@]}"}"; do
         key="${kv%%=*}"; val="${kv#*=}"
-        P["${key}"]="${val}"
+        case "${key}" in
+            dag_name)      P_dag_name="${val}" ;;
+            ssh_conn_id)   P_ssh_conn_id="${val}" ;;
+            protocol)      P_protocol="${val}" ;;
+            rhost)         P_rhost="${val}" ;;
+            rport)         P_rport="${val}" ;;
+            ruser)         P_ruser="${val}" ;;
+            rpass_var)     P_rpass_var="${val}" ;;
+            lpath)         P_lpath="${val}" ;;
+            rpath)         P_rpath="${val}" ;;
+            transfer_type) P_transfer_type="${val}" ;;
+            file_type)     P_file_type="${val}" ;;
+            rostype)       P_rostype="${val}" ;;
+            schedule)      P_schedule="${val}" ;;
+            recfm)         P_recfm="${val}" ;;
+            lrecl)         P_lrecl="${val}" ;;
+            *) echo "[WARN] Unknown parameter: ${key}=${val}" ;;
+        esac
     done
 
     # required param check
     for req in dag_name ssh_conn_id protocol rhost rport ruser rpass_var lpath rpath; do
-        if [ -z "${P[${req}]:-}" ]; then
+        eval "val=\$P_${req}"
+        if [ -z "${val}" ]; then
             echo "[ERROR] --reusable missing required parameter: ${req}"
             echo "Run './run_tests_nonprod.sh --help' for usage."
             exit 1
@@ -151,13 +173,13 @@ if $REUSABLE; then
     done
 
     # defaults
-    TRANSFER_TYPE="${P[transfer_type]:-upload}"
-    FILE_TYPE="${P[file_type]:-I}"
-    ROSTYPE="${P[rostype]:-Unix}"
-    SCHEDULE="${P[schedule]:-0 22 * * *}"
-    RECFM="${P[recfm]:-}"
-    LRECL="${P[lrecl]:-}"
-    DAG_NAME="${P[dag_name]}"
+    TRANSFER_TYPE="${P_transfer_type:-upload}"
+    FILE_TYPE="${P_file_type:-I}"
+    ROSTYPE="${P_rostype:-Unix}"
+    SCHEDULE="${P_schedule:-0 22 * * *}"
+    RECFM="${P_recfm:-}"
+    LRECL="${P_lrecl:-}"
+    DAG_NAME="${P_dag_name}"
 
     log "========================================"
     log "  controlm2airflow — reusable DAG generation"
@@ -169,7 +191,7 @@ if $REUSABLE; then
     log "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
     info "Generating reusable file-transfer DAG: ${DAG_NAME}"
     info "Output : output/test_nonprod/"
-    info "Params : protocol=${P[protocol]} rhost=${P[rhost]}:${P[rport]} transfer=${TRANSFER_TYPE} type=${FILE_TYPE} rostype=${ROSTYPE}"
+    info "Params : protocol=${P_protocol} rhost=${P_rhost}:${P_rport} transfer=${TRANSFER_TYPE} type=${FILE_TYPE} rostype=${ROSTYPE}"
     log "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
     info "Running claude skill..."
 
@@ -197,14 +219,14 @@ if $REUSABLE; then
         printf 'app_code       = %s\n' "${APP_CODE}"
         printf 'env            = %s\n' "${ENV}"
         printf 'dag_name       = %s\n' "${DAG_NAME}"
-        printf 'ssh_conn_id    = %s\n' "${P[ssh_conn_id]}"
-        printf 'protocol       = %s\n' "${P[protocol]}"
-        printf 'rhost          = %s\n' "${P[rhost]}"
-        printf 'rport          = %s\n' "${P[rport]}"
-        printf 'ruser          = %s\n' "${P[ruser]}"
-        printf 'rpass_var      = %s\n' "${P[rpass_var]}"
-        printf 'lpath          = %s\n' "${P[lpath]}"
-        printf 'rpath          = %s\n' "${P[rpath]}"
+        printf 'ssh_conn_id    = %s\n' "${P_ssh_conn_id}"
+        printf 'protocol       = %s\n' "${P_protocol}"
+        printf 'rhost          = %s\n' "${P_rhost}"
+        printf 'rport          = %s\n' "${P_rport}"
+        printf 'ruser          = %s\n' "${P_ruser}"
+        printf 'rpass_var      = %s\n' "${P_rpass_var}"
+        printf 'lpath          = %s\n' "${P_lpath}"
+        printf 'rpath          = %s\n' "${P_rpath}"
         printf 'transfer_type  = %s\n' "${TRANSFER_TYPE}"
         printf 'file_type      = %s\n' "${FILE_TYPE}"
         printf 'rostype        = %s\n' "${ROSTYPE}"
