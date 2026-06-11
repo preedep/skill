@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
 # run_tests_nonprod.sh — run controlm2airflow skill on input/test_nonprod/*.xml
+#                        and optionally generate reusable file-transfer DAGs from parameters
 #
 # Usage:
 #   ./run_tests_nonprod.sh                        # run all input/test_nonprod/*.xml
@@ -7,6 +8,39 @@
 #   ./run_tests_nonprod.sh --scenario chmod        # files matching keyword
 #   ./run_tests_nonprod.sh --scenario pre post     # files matching any keyword
 #   ./run_tests_nonprod.sh --list                  # list available scenarios
+#
+#   # Generate a reusable file-transfer DAG (no XML — pass params directly):
+#   ./run_tests_nonprod.sh --reusable \
+#       dag_name=transfer_daily \
+#       ssh_conn_id=ssh-benseni-ctrlm \
+#       protocol=ftps \
+#       rhost=10.4.53.2 \
+#       rport=991 \
+#       ruser=airflow \
+#       rpass_var=airflow-alld-secret \
+#       lpath=/SERVERDATA/YUT_AIRFLOW/input \
+#       rpath=MYDS.INPUT \
+#       transfer_type=upload \
+#       file_type=A \
+#       rostype=MVS \
+#       schedule="30 22 * * *"
+#
+# Reusable DAG parameters (--reusable key=value ...):
+#   dag_name       DAG name suffix (required)
+#   ssh_conn_id    Airflow SSH connection ID (required)
+#   protocol       ftp / ftps / sftp (required)
+#   rhost          Remote hostname or IP (required)
+#   rport          Remote port (required)
+#   ruser          Remote FTP username (required)
+#   rpass_var      Airflow Variable name holding the password (required)
+#   lpath          Local file path or glob (required)
+#   rpath          Remote path or MVS dataset name (required)
+#   transfer_type  upload / download (default: upload)
+#   file_type      A (ASCII) / I (binary) (default: I)
+#   rostype        Unix / Windows / MVS (default: Unix)
+#   schedule       Cron expression (default: "0 22 * * *")
+#   recfm          MVS RECFM (e.g. FB) — MVS only
+#   lrecl          MVS LRECL (e.g. 400) — MVS only
 #
 # Scenario keywords match against the input filename (case-insensitive substring).
 # Examples: dest, source, chmod, makedir, rename, move
@@ -57,7 +91,7 @@ APP_CODE="poc"
 ENV="nonprod"
 
 usage() {
-    sed -n '2,27p' "$0" | sed 's/^# \{0,1\}//'
+    sed -n '2,62p' "$0" | sed 's/^# \{0,1\}//'
     echo ""
     echo "Available scenarios (input/test_nonprod/*.xml):"
     for f in "${INPUT_DIR}"/*.xml; do
@@ -68,6 +102,8 @@ usage() {
 # parse arguments
 SCENARIOS=()
 INPUT_FILES=()
+REUSABLE=false
+REUSABLE_PARAMS=()
 
 while [ $# -gt 0 ]; do
     case "$1" in
@@ -78,6 +114,11 @@ while [ $# -gt 0 ]; do
             while [ $# -gt 0 ] && [[ "$1" != --* ]]; do
                 SCENARIOS+=("$1"); shift
             done ;;
+        --reusable|-r)
+            REUSABLE=true; shift
+            while [ $# -gt 0 ] && [[ "$1" != --* ]]; do
+                REUSABLE_PARAMS+=("$1"); shift
+            done ;;
         --help|-h)
             usage; exit 0 ;;
         *.xml)
@@ -86,6 +127,181 @@ while [ $# -gt 0 ]; do
             SCENARIOS+=("$1"); shift ;;
     esac
 done
+
+# ─── Reusable DAG generation (no XML input) ──────────────────────────────────
+if $REUSABLE; then
+    CASE_LABEL="reusable_dag"
+    CASE_LOG="${LOG_DIR}/${CASE_LABEL}_${TIMESTAMP}.log"
+    STREAM_LOG="${LOG_DIR}/${CASE_LABEL}_${TIMESTAMP}_stream.jsonl"
+
+    # parse key=value params
+    declare -A P
+    for kv in "${REUSABLE_PARAMS[@]}"; do
+        key="${kv%%=*}"; val="${kv#*=}"
+        P["${key}"]="${val}"
+    done
+
+    # required param check
+    for req in dag_name ssh_conn_id protocol rhost rport ruser rpass_var lpath rpath; do
+        if [ -z "${P[${req}]:-}" ]; then
+            echo "[ERROR] --reusable missing required parameter: ${req}"
+            echo "Run './run_tests_nonprod.sh --help' for usage."
+            exit 1
+        fi
+    done
+
+    # defaults
+    TRANSFER_TYPE="${P[transfer_type]:-upload}"
+    FILE_TYPE="${P[file_type]:-I}"
+    ROSTYPE="${P[rostype]:-Unix}"
+    SCHEDULE="${P[schedule]:-0 22 * * *}"
+    RECFM="${P[recfm]:-}"
+    LRECL="${P[lrecl]:-}"
+    DAG_NAME="${P[dag_name]}"
+
+    log "========================================"
+    log "  controlm2airflow — reusable DAG generation"
+    log "  $(date '+%Y-%m-%d %H:%M:%S')"
+    log "  company=${COMPANY} project=${PROJECT} app_code=${APP_CODE} env=${ENV}"
+    log "  dag_name=${DAG_NAME}"
+    log "========================================"
+    log ""
+    log "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+    info "Generating reusable file-transfer DAG: ${DAG_NAME}"
+    info "Output : output/test_nonprod/"
+    info "Params : protocol=${P[protocol]} rhost=${P[rhost]}:${P[rport]} transfer=${TRANSFER_TYPE} type=${FILE_TYPE} rostype=${ROSTYPE}"
+    log "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+    info "Running claude skill..."
+
+    MVS_PARAMS=""
+    if [ -n "${RECFM}" ]; then
+        MVS_PARAMS="recfm          = ${RECFM}"$'\n'"lrecl          = ${LRECL}"
+    fi
+
+    BEFORE_TS=$(date +%s)
+
+    {
+        printf 'Follow the skill defined in skills/controlm2airflow/skill.md.\n\n'
+        printf 'Generate a reusable file-transfer Airflow DAG — NOT from a Control-M XML, but from the parameters below.\n'
+        printf 'This is a standalone parameterised DAG that performs a single file transfer on a schedule.\n'
+        printf 'Use SSHOperator with lftp (or aws s3 for S3 protocol). Apply all skill.md rules:\n'
+        printf '  - professional logging (INFO/DEBUG), file condition checks, lftp debug lines\n'
+        printf '  - FTPS explicit TLS settings if protocol=ftps\n'
+        printf '  - MVS dataset quoting (RPATH_QUOTED) if rostype=MVS\n'
+        printf '  - success_callback / failure_callback canonical template\n'
+        printf '  - all variables as module-level _ prefixed vars\n\n'
+        printf 'Output directory: %s/\n\n' "${OUTPUT_DIR}"
+        printf 'Parameters:\n'
+        printf 'company        = %s\n' "${COMPANY}"
+        printf 'app_id         = %s\n' "${PROJECT}"
+        printf 'app_code       = %s\n' "${APP_CODE}"
+        printf 'env            = %s\n' "${ENV}"
+        printf 'dag_name       = %s\n' "${DAG_NAME}"
+        printf 'ssh_conn_id    = %s\n' "${P[ssh_conn_id]}"
+        printf 'protocol       = %s\n' "${P[protocol]}"
+        printf 'rhost          = %s\n' "${P[rhost]}"
+        printf 'rport          = %s\n' "${P[rport]}"
+        printf 'ruser          = %s\n' "${P[ruser]}"
+        printf 'rpass_var      = %s\n' "${P[rpass_var]}"
+        printf 'lpath          = %s\n' "${P[lpath]}"
+        printf 'rpath          = %s\n' "${P[rpath]}"
+        printf 'transfer_type  = %s\n' "${TRANSFER_TYPE}"
+        printf 'file_type      = %s\n' "${FILE_TYPE}"
+        printf 'rostype        = %s\n' "${ROSTYPE}"
+        printf 'schedule       = %s\n' "${SCHEDULE}"
+        if [ -n "${MVS_PARAMS}" ]; then printf '%s\n' "${MVS_PARAMS}"; fi
+        printf '\n'
+        printf 'DAG filename: %s-%s-%s-%s-%s.py\n' "${COMPANY}" "${PROJECT}" "${APP_CODE}" "${DAG_NAME}" "${ENV}"
+        printf '\n'
+        printf 'Connection IDs, remote users, and secrets for this environment are defined in:\n'
+        printf '  skills/controlm2airflow/raws/connection_id_nonprod.md\n'
+        printf 'Verify every generated DAG with: python <dag>.py && pyflakes <dag>.py (both must exit 0).\n'
+    } | claude --print --output-format stream-json --verbose --allowedTools "Read,Write,Bash" \
+        2>&1 | tee "${STREAM_LOG}" \
+        | python3 -c "
+import sys, json
+for line in sys.stdin:
+    line = line.strip()
+    if not line.startswith('{'):
+        print(line, flush=True)
+        continue
+    try:
+        obj = json.loads(line)
+        if obj.get('type') == 'assistant' and 'message' in obj:
+            for block in obj['message'].get('content', []):
+                if block.get('type') == 'text':
+                    print(block['text'], end='', flush=True)
+    except json.JSONDecodeError:
+        print(line, flush=True)
+" 2>&1 | tee "${CASE_LOG}" || true
+
+    AFTER_TS=$(date +%s)
+
+    token_info="$(extract_tokens "${STREAM_LOG}" 2>/dev/null || echo "input=0 output=0 cache_read=0 cost=0.000000")"
+    case_input=$(echo "${token_info}"  | sed -nE 's/.*input=([0-9]+).*/\1/p')
+    case_output=$(echo "${token_info}" | sed -nE 's/.*output=([0-9]+).*/\1/p')
+    case_cache=$(echo "${token_info}"  | sed -nE 's/.*cache_read=([0-9]+).*/\1/p')
+    case_cost=$(echo "${token_info}"   | sed -nE 's/.*cost=([0-9.]+).*/\1/p')
+    info "Tokens : input=${case_input:-0} output=${case_output:-0} cache_read=${case_cache:-0} cost=\$${case_cost:-0.000000}"
+
+    # verify generated DAG
+    dag_files=()
+    while IFS= read -r -d '' f; do
+        dag_files+=("$f")
+    done < <(find "${OUTPUT_DIR}" -name "*.py" -newer "${LOG_DIR}/${CASE_LABEL}_${TIMESTAMP}.log" -print0 2>/dev/null)
+
+    # fallback: any .py newer than start time
+    if [ ${#dag_files[@]} -eq 0 ]; then
+        while IFS= read -r -d '' f; do
+            dag_files+=("$f")
+        done < <(find "${OUTPUT_DIR}" -name "*.py" -newer "${SUMMARY_LOG}" -print0 2>/dev/null)
+    fi
+
+    if [ ${#dag_files[@]} -eq 0 ]; then
+        fail "reusable — no .py output generated in ${OUTPUT_DIR}/"
+        log ""
+        log "  Output : ${OUTPUT_DIR}/"
+        log "  Log    : ${SUMMARY_LOG}"
+        exit 1
+    fi
+
+    info "Generated ${#dag_files[@]} DAG file(s):"
+    syntax_ok=true
+    for dag in "${dag_files[@]}"; do
+        info "  $(basename "${dag}") ($(wc -l < "${dag}") lines)"
+        if .venv/bin/python "${dag}" >> "${CASE_LOG}" 2>&1; then
+            pass "Syntax OK : $(basename "${dag}")"
+        else
+            fail "Syntax FAIL: $(basename "${dag}")"
+            syntax_ok=false
+        fi
+        if .venv/bin/pyflakes "${dag}" >> "${CASE_LOG}" 2>&1; then
+            pass "Lint OK   : $(basename "${dag}")"
+        else
+            fail "Lint FAIL : $(basename "${dag}")"
+            syntax_ok=false
+        fi
+    done
+
+    log ""
+    log "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+    if $syntax_ok; then
+        pass "Reusable DAG PASSED — ${DAG_NAME}"
+        log ""
+        log "  Output : ${OUTPUT_DIR}/"
+        log "  Log    : ${CASE_LOG}"
+        log "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+        exit 0
+    else
+        fail "Reusable DAG FAILED — ${DAG_NAME} (see ${CASE_LOG})"
+        log ""
+        log "  Output : ${OUTPUT_DIR}/"
+        log "  Log    : ${CASE_LOG}"
+        log "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+        exit 1
+    fi
+fi
+# ─── end reusable ─────────────────────────────────────────────────────────────
 
 # resolve final file list
 if [ ${#INPUT_FILES[@]} -gt 0 ]; then
