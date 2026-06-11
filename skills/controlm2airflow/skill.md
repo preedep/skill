@@ -874,6 +874,8 @@ One reusable DAG per OS type per project — regardless of how many source serve
 
 Clone the template, replace only `##COMPANY##`, `##PROJECT##`, `##DAG_NAME##`, `##ENV##`, `##ACTIVE##`, `##TAGS##`, `##EMAIL_LIST##`, `##ENABLE_EMAIL_NOTIFICATION_SUCCESS##`, `##ENABLE_EMAIL_NOTIFICATION_FAIL##`. No infrastructure placeholders — all infra comes from `conf={}` at runtime.
 
+> **`##ACTIVE##` for reusable DAGs must always be `False`.** Reusable DAGs have `schedule=None` and are only ever triggered by a caller — they must deploy paused (`is_paused_upon_creation=True`). Never set `##ACTIVE## = True` in a reusable DAG template substitution.
+
 #### Reusable DAG naming
 
 `<company>-<project>-file-transfer-<win|unix>-<env>`

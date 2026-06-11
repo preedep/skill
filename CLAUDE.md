@@ -12,6 +12,7 @@ skill/
 ├── LICENSE               (MIT)
 ├── .gitignore
 ├── run_tests.sh          # run all skill test cases (see Testing section)
+├── create_reusable_dag.sh # generate reusable file-transfer DAGs from parameters (see Reusable DAG section)
 ├── input/                # test input XML files (gitignored — no real data)
 ├── output/               # generated DAG files (gitignored)
 ├── logs/                 # test run logs (gitignored)
@@ -87,6 +88,27 @@ Stream logs saved to `logs/<case>_stream.jsonl` alongside the human-readable log
 | 10 | `test_case10_reusable_dag.xml` | Mode B reusable DAG: EXPINV_DAILY_TABLE — 2 OS + 3 FILE_TRANS (Unix, 2 source hosts, 2 dest hosts, fork dependency) → reusable unix DAG + caller DAG with `TriggerDagRunOperator` + `ExternalTaskSensor` pairs |
 
 Each case converts the XML via `claude --print` using `skill.md`, then syntax-verifies every generated DAG with `python <dag>.py` + `pyflakes` (both exit code 0 required).
+
+#### Reusable DAG generation and verification
+
+`create_reusable_dag.sh` generates reusable file-transfer DAGs from parameters (no XML input):
+
+```bash
+./create_reusable_dag.sh --both company=nix project=apxxxx app_code=poc env=nonprod dag_name=transfer-daily
+./create_reusable_dag.sh --unix ...    # Unix DAG only
+./create_reusable_dag.sh --win  ...    # Windows DAG only
+./create_reusable_dag.sh --scan        # scan input/test_nonprod/*.xml → JSON catalogue
+```
+
+Each generated DAG is verified with three checks (all must pass):
+
+| Check | Tool | What it catches |
+|-------|------|-----------------|
+| Python syntax | `python <dag>.py` | Import errors, indentation, SyntaxError |
+| Python lint | `pyflakes <dag>.py` | Unused imports, undefined names |
+| Shell lint | `shellcheck` (per bash heredoc) | Real bash bugs: bad `-exec`, unused vars, quoting issues |
+
+`shellcheck` requires `brew install shellcheck`. Intentionally suppressed codes: SC2086 (unquoted glob vars), SC2012 (`ls` for display), SC2010 (`ls|grep` for display), SC2154 (Jinja vars look unset).
 
 ## Constraints 
 - Not save or use real company data to git.
