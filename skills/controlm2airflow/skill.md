@@ -622,6 +622,66 @@ Follow **Airflow Date/Time Best Practices** (see above). Do NOT use `date`/`$(da
 
 #### File Operations
 
+##### File condition checks — same task vs separate task
+
+| Situation | Pattern | Why |
+|---|---|---|
+| Upload: local source file must exist before transfer | **Same task** — guard at top of script | Fail fast with clear message; no benefit to a separate task |
+| Download: destination file must exist and be non-empty after transfer | **Same task** — check after lftp/aws completes | Confirms transfer actually wrote data; lftp can exit 0 with no bytes |
+| Wildcard upload: at least one file must match `$LPATH` | **Same task** — count files before lftp | lftp exits 0 even if glob matches nothing — silent failure without this check |
+| Wait for remote file to appear before transferring | **Separate task** — `SFTPSensor` / `SSHOperator` poll loop | Different retry cadence from the transfer; re-runnable independently in Airflow UI |
+
+> The "wait for file" case is already handled by `FTP-UPLOAD{N}=3` → sensor task (see FileWatch section). All other checks are **inline guards in the same task**.
+
+##### File condition check templates — Bash
+
+```bash
+# Upload: check local source exists before transfer
+if [ ! -f "$LPATH" ]; then
+    echo "[ERROR] Source file not found: $LPATH"
+    exit 1
+fi
+
+# Upload wildcard: check at least one file matches
+FILE_COUNT=$(ls $LPATH 2>/dev/null | wc -l)
+if [ "$FILE_COUNT" -eq 0 ]; then
+    echo "[ERROR] No files matched: $LPATH"
+    exit 1
+fi
+echo "[INFO] Files to transfer: $FILE_COUNT"
+
+# Download: check destination file written and non-empty after transfer
+if [ ! -s "$LPATH" ]; then
+    echo "[ERROR] Download produced empty or missing file: $LPATH"
+    exit 1
+fi
+```
+
+##### File condition check templates — PowerShell
+
+```powershell
+# Upload: check local source exists before transfer
+if (-not (Test-Path -Path $LPath)) {
+    Write-Host "[ERROR] Source file not found: $LPath"
+    exit 1
+}
+
+# Upload wildcard: check at least one file matches
+$Files = Get-Item -Path $LPath -ErrorAction SilentlyContinue
+if (-not $Files) {
+    Write-Host "[ERROR] No files matched: $LPath"
+    exit 1
+}
+Write-Host "[INFO] Files to transfer: $($Files.Count)"
+
+# Download: check destination file written and non-empty after transfer
+$DestFile = Get-Item -Path $LPath -ErrorAction SilentlyContinue
+if (-not $DestFile -or $DestFile.Length -eq 0) {
+    Write-Host "[ERROR] Download produced empty or missing file: $LPath"
+    exit 1
+}
+```
+
 * Validate file existence before transfer or processing.
 * **Always log file size** for any file operation (upload, download, rename, move, delete). This is essential for diagnosing empty files, partial transfers, and size mismatches.
 * Bash: quote paths `"$FILE_PATH"`.
