@@ -36,7 +36,9 @@ flowchart TD
 ```mermaid
 flowchart LR
     Airflow -->|SSH| SourceServer
-    SourceServer -->|lftp / aws / azcopy| Destination
+    SourceServer -->|ftp/ftps/sftp: lftp| Destination
+    SourceServer -->|s3: aws s3 cp| S3[(S3 bucket)]
+    SourceServer -->|blob: azcopy| Blob[(Azure Blob)]
 
     style SourceServer fill:#d4edda,stroke:#28a745
 ```
@@ -47,7 +49,7 @@ flowchart TD
     VP --> PRE[pre_command]
     PRE --> PULL[pull_from_source\n⏭ skipped]
     PULL --> VAL[validate_source\nchecks source_path]
-    VAL --> TF[transfer_files\nlftp source_path → dest]
+    VAL --> TF[transfer_files\nftp/ftps/sftp → lftp source_path → dest\ns3 → aws s3 cp source_path → s3://bucket\nblob → azcopy source_path → container]
     TF --> VER[verify]
     VER --> POST[post_transfer_action]
     POST --> PC[post_command]
@@ -58,12 +60,17 @@ flowchart TD
 
 ### Relay mode (`src_protocol` = `sftp` / `ftps` / `ftp`)
 
+> Relay only supports pulling from the source via lftp (sftp/ftps/ftp).
+> The destination push can still be ftp/ftps/sftp, s3, or blob — relay stages files locally first, then pushes using the appropriate tool.
+
 ```mermaid
 flowchart LR
     Airflow -->|SSH| Relay
     Relay -->|lftp pull\nsrc_protocol| SourceServer
     SourceServer -->|files| Relay
-    Relay -->|staging dir\nlftp push| Destination
+    Relay -->|ftp/ftps/sftp: lftp staging→dest| Destination
+    Relay -->|s3: aws s3 cp staging→bucket| S3[(S3 bucket)]
+    Relay -->|blob: azcopy staging→container| Blob[(Azure Blob)]
 
     style Relay fill:#fff3cd,stroke:#ffc107
     style SourceServer fill:#d4edda,stroke:#28a745
@@ -73,9 +80,9 @@ flowchart LR
 flowchart TD
     S([start]) --> VP[validate_params]
     VP --> PRE[pre_command]
-    PRE --> PULL[pull_from_source\nrelay pulls source_path\nfrom src_host → wilson_staging_dir/run_id]
+    PRE --> PULL[pull_from_source\nrelay pulls source_path from src_host\nvia lftp sftp/ftps/ftp\n→ wilson_staging_dir/run_id]
     PULL --> VAL[validate_source\nchecks wilson_staging_dir/run_id]
-    VAL --> TF[transfer_files\nlftp staging_dir/* → dest]
+    VAL --> TF[transfer_files\nftp/ftps/sftp → lftp staging_dir/* → dest\ns3 → aws s3 cp staging_dir → s3://bucket\nblob → azcopy staging_dir → container]
     TF --> VER[verify]
     VER --> POST[post_transfer_action\n+ Wilson cleanup\nrm -rf staging_dir/run_id]
     POST --> PC[post_command]
@@ -113,7 +120,7 @@ fi
 | `pre_command` | ✅ runs | ✅ runs | `pre_command` param is empty |
 | `pull_from_source` | ⏭ skipped | ✅ pulls `source_path` from `src_host` → staging | `src_protocol` empty / `local` |
 | `validate_source_files` | checks `source_path` | checks `wilson_staging_dir/run_id` | `archive_only`, `cleanup_only`, `s3_download`, `blob_download` |
-| `transfer_files` | `source_path` → dest | `staging_dir/*` → dest | `archive_only`, `cleanup_only` |
+| `transfer_files` | lftp `source_path` → dest (ftp/ftps/sftp)<br>aws s3 cp `source_path` → bucket (s3)<br>azcopy `source_path` → container (blob) | lftp `staging_dir/*` → dest (ftp/ftps/sftp)<br>aws s3 cp `staging_dir` → bucket (s3)<br>azcopy `staging_dir` → container (blob) | `archive_only`, `cleanup_only` |
 | `verify` | checks dest | checks dest | `archive_only`, `cleanup_only` |
 | `post_transfer_action` | delete/rename/move/archive | same + Wilson cleanup (`rm -rf staging_dir/run_id`) | depends on `direction` |
 | `post_command` | ✅ runs | ✅ runs | `post_command` param is empty |
