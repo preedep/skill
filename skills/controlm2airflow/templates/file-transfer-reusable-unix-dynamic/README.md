@@ -260,10 +260,40 @@ _dag_name = "file-transfer-unix"
 
 ### Step 5: Call from your business DAG
 
+#### How pre_command and post_command work
+
+- Both run on the **SSH target server** (same host as the transfer)
+- Set to `""` (empty string) to skip — task exits immediately with no error
+- `pre_command_args` / `post_command_args` are appended as arguments: `bash -c "$CMD $ARGS"`
+- Special case: `chmod` — if no files match the glob, it warns and skips instead of failing
+
+```
+pre_command  runs BEFORE pull_from_source / validate_source / transfer_files
+post_command runs AFTER  verify / post_transfer_action
+```
+
+Common uses:
+
+| Use case | pre_command | pre_command_args |
+|---|---|---|
+| Create staging directory | `"mkdir -p /data/staging"` | `[]` |
+| Change file permissions before transfer | `"chmod"` | `["664", "/data/input/*.*"]` |
+| Touch a trigger file | `"touch /data/ready.flag"` | `[]` |
+| Run a shell script | `"/opt/scripts/prepare.sh"` | `["--env", "nonprod"]` |
+
+| Use case | post_command | post_command_args |
+|---|---|---|
+| Change permissions on delivered files | `"chmod"` | `["644", "/incoming/report/*.*"]` |
+| Write a completion marker | `"touch /data/done.flag"` | `[]` |
+| Clean up temp files | `"rm -f /data/staging/*.tmp"` | `[]` |
+| Run a notification script | `"/opt/scripts/notify.sh"` | `["--job", "transfer_report"]` |
+
+---
+
 ```python
 from airflow.operators.trigger_dagrun import TriggerDagRunOperator
 
-# ── Direct: SSH target IS the source server ──────────────────────────────────
+# ── Direct: no pre/post command (skip both) ───────────────────────────────────
 TriggerDagRunOperator(
     task_id='transfer_report',
     trigger_dag_id='nix-apxxxx-file-transfer-unix-nonprod',
@@ -271,7 +301,6 @@ TriggerDagRunOperator(
     poke_interval=30,
     conf={
         "ssh_conn_id":       "ssh-unix-server",
-        # src_protocol left empty = direct mode
         "source_path":       "/data/report/*.csv",
         "dest_host":         "dest-server",
         "dest_port":         "21",
@@ -280,6 +309,55 @@ TriggerDagRunOperator(
         "dest_path":         "/incoming/report/",
         "password_var_name": "project-dest-password",
         "direction":         "upload",
+        # pre_command / post_command omitted = empty = skipped
+    },
+)
+
+# ── Direct: mkdir staging before transfer, chmod after ───────────────────────
+TriggerDagRunOperator(
+    task_id='transfer_with_commands',
+    trigger_dag_id='nix-apxxxx-file-transfer-unix-nonprod',
+    wait_for_completion=True,
+    poke_interval=30,
+    conf={
+        "ssh_conn_id":          "ssh-unix-server",
+        "source_path":          "/data/export/*.dat",
+        "dest_host":            "dest-server",
+        "dest_port":            "22",
+        "dest_protocol":        "sftp",
+        "dest_user":            "sftpuser",
+        "dest_path":            "/var/incoming/",
+        "password_var_name":    "project-dest-password",
+        "direction":            "upload_delete",    # delete source after upload
+        # create dest directory before transfer
+        "pre_command":          "mkdir -p /var/incoming",
+        "pre_command_args":     [],
+        # fix permissions on delivered files after transfer
+        "post_command":         "chmod",
+        "post_command_args":    ["644", "/var/incoming/*.dat"],
+    },
+)
+
+# ── Direct: run prepare script before, notify script after ───────────────────
+TriggerDagRunOperator(
+    task_id='transfer_with_scripts',
+    trigger_dag_id='nix-apxxxx-file-transfer-unix-nonprod',
+    wait_for_completion=True,
+    poke_interval=30,
+    conf={
+        "ssh_conn_id":          "ssh-unix-server",
+        "source_path":          "/data/daily/*.csv",
+        "dest_host":            "dest-server",
+        "dest_port":            "21",
+        "dest_protocol":        "ftp",
+        "dest_user":            "ftpuser",
+        "dest_path":            "/upload/daily/",
+        "password_var_name":    "project-dest-password",
+        "direction":            "upload",
+        "pre_command":          "/opt/scripts/prepare.sh",
+        "pre_command_args":     ["--env", "nonprod"],
+        "post_command":         "/opt/scripts/notify.sh",
+        "post_command_args":    ["--job", "transfer_daily", "--status", "done"],
     },
 )
 
@@ -305,6 +383,11 @@ TriggerDagRunOperator(
         "dest_path":          "/incoming/",
         "password_var_name":  "project-dest-password",
         "direction":          "upload",
+        # pre/post commands run on the relay server
+        "pre_command":        "mkdir -p /tmp/airflow/staging/transfer_report",
+        "pre_command_args":   [],
+        "post_command":       "",   # skip
+        "post_command_args":  [],
     },
 )
 ```
