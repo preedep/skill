@@ -260,6 +260,30 @@ _dag_name = "file-transfer-unix"
 
 ### Step 5: Call from your business DAG
 
+#### Two ways to call the reusable DAG
+
+```mermaid
+flowchart TD
+    A([Caller DAG task]) --> B{How long is the transfer?\nHow many worker slots?}
+
+    B -- Short transfer\nOR worker slots are plentiful --> C[Mode A — inline\nwait_for_completion=True]
+    B -- Long transfer\nOR worker slots are scarce --> D[Mode B — trigger + sensor\nwait_for_completion=False]
+
+    C --> E[TriggerDagRunOperator\nwait_for_completion=True\npoke_interval=30\nWorker slot held for full duration]
+
+    D --> F[TriggerDagRunOperator\nwait_for_completion=False\nFires and releases slot immediately]
+    F --> G[ExternalTaskSensor\nmode=reschedule\npoke_interval=60\nSlot held only during each poll check]
+```
+
+| | Mode A — inline | Mode B — trigger + sensor |
+|---|---|---|
+| `wait_for_completion` | `True` | `False` |
+| Worker slot | Held for full transfer | Freed after trigger fires |
+| Sensor needed | No | Yes — `ExternalTaskSensor` |
+| Use when | Short transfer / simple DAG | Long transfer / many parallel jobs |
+
+---
+
 #### How pre_command and post_command work
 
 - Both run on the **SSH target server** (same host as the transfer)
@@ -390,6 +414,113 @@ TriggerDagRunOperator(
         "post_command_args":  [],
     },
 )
+```
+
+---
+
+#### Mode B — TriggerDagRunOperator + ExternalTaskSensor (reschedule)
+
+Use this pattern when the transfer is long-running or you have many parallel jobs and want to avoid
+holding a worker slot for the full transfer duration.
+
+```
+Worker slot timeline:
+
+Mode A (wait_for_completion=True):
+  trigger ──── transfer running (e.g. 30 min) ──── done ──► slot freed
+
+Mode B (wait_for_completion=False + ExternalTaskSensor reschedule):
+  trigger ──► slot freed   (seconds)
+  sensor:  wake─poll─sleep─wake─poll─sleep─wake─poll─done ──► slot freed
+           slot held only ~2 sec per poll, freed between polls
+```
+
+```python
+from airflow.providers.standard.sensors.external_task import ExternalTaskSensor
+from airflow.providers.standard.operators.trigger_dagrun import TriggerDagRunOperator
+
+# ── Mode B: fire and free, sensor watches completion ─────────────────────────
+task_trigger_transfer = TriggerDagRunOperator(
+    task_id='trigger_transfer_report',
+    trigger_dag_id='nix-apxxxx-file-transfer-unix-nonprod',
+    wait_for_completion=False,      # fire and release worker slot immediately
+    conf={
+        "ssh_conn_id":       "ssh-unix-server",
+        "source_path":       "/data/report/*.csv",
+        "dest_host":         "dest-server",
+        "dest_port":         "21",
+        "dest_protocol":     "ftps",
+        "dest_user":         "ftpuser",
+        "dest_path":         "/incoming/report/",
+        "password_var_name": "project-dest-password",
+        "direction":         "upload",
+        "pre_command":       "mkdir -p /incoming/report",
+        "pre_command_args":  [],
+        "post_command":      "chmod",
+        "post_command_args": ["644", "/incoming/report/*.csv"],
+    },
+)
+
+task_wait_transfer = ExternalTaskSensor(
+    task_id='wait_transfer_report',
+    external_dag_id='nix-apxxxx-file-transfer-unix-nonprod',
+    external_task_id=None,          # None = watch the whole DAG run, not one task
+    mode='reschedule',              # releases worker slot between polls
+    poke_interval=60,               # poll every 60 seconds
+    timeout=3600,                   # fail if not done within 1 hour
+    on_failure_callback=failure_callback,
+)
+
+# ── Wire dependencies: upstream → trigger → sensor → downstream ───────────────
+task_prev_job >> task_trigger_transfer >> task_wait_transfer >> task_next_job
+```
+
+#### Mode B with multiple transfers — parallel fan-out
+
+```python
+# Trigger both transfers immediately (parallel, no dependency between them)
+task_trigger_report = TriggerDagRunOperator(
+    task_id='trigger_transfer_report',
+    trigger_dag_id='nix-apxxxx-file-transfer-unix-nonprod',
+    wait_for_completion=False,
+    conf={
+        "ssh_conn_id": "ssh-unix-server", "source_path": "/data/report/*.csv",
+        "dest_host": "dest-server", "dest_port": "21", "dest_protocol": "ftps",
+        "dest_user": "ftpuser", "dest_path": "/incoming/report/",
+        "password_var_name": "project-dest-password", "direction": "upload",
+    },
+)
+
+task_trigger_summary = TriggerDagRunOperator(
+    task_id='trigger_transfer_summary',
+    trigger_dag_id='nix-apxxxx-file-transfer-unix-nonprod',
+    wait_for_completion=False,
+    conf={
+        "ssh_conn_id": "ssh-unix-server", "source_path": "/data/summary/*.xlsx",
+        "dest_host": "dest-server", "dest_port": "21", "dest_protocol": "ftps",
+        "dest_user": "ftpuser", "dest_path": "/incoming/summary/",
+        "password_var_name": "project-dest-password", "direction": "upload_delete",
+    },
+)
+
+# Watch each transfer independently
+task_wait_report = ExternalTaskSensor(
+    task_id='wait_transfer_report',
+    external_dag_id='nix-apxxxx-file-transfer-unix-nonprod',
+    external_task_id=None, mode='reschedule', poke_interval=60, timeout=3600,
+)
+
+task_wait_summary = ExternalTaskSensor(
+    task_id='wait_transfer_summary',
+    external_dag_id='nix-apxxxx-file-transfer-unix-nonprod',
+    external_task_id=None, mode='reschedule', poke_interval=60, timeout=3600,
+)
+
+# Both must complete before downstream proceeds
+task_prev_job >> [task_trigger_report, task_trigger_summary]
+task_trigger_report  >> task_wait_report
+task_trigger_summary >> task_wait_summary
+[task_wait_report, task_wait_summary] >> task_next_job
 ```
 
 ---
