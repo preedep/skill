@@ -10,7 +10,7 @@
 #   ./create_reusable_dag.sh --unix   [parameters...]   # Unix DAG only
 #   ./create_reusable_dag.sh --win    [parameters...]   # Windows DAG only
 #   ./create_reusable_dag.sh --both   [parameters...]   # both DAGs (default)
-#   ./create_reusable_dag.sh --scan                     # scan XMLs → write JSON catalogue
+#   ./create_reusable_dag.sh --scan                     # scan XMLs → catalogue + per-scenario conf JSONs
 #   ./create_reusable_dag.sh --list                     # list required parameters
 #   ./create_reusable_dag.sh --help
 #
@@ -235,17 +235,32 @@ if node_win_ref and os.path.exists(node_win_ref):
             win_nodes.add(m.group(1).strip().lower())
 
 # ── parse connection_id_nonprod.md ──────────────────────────────────────────
-conn_map  = {}   # job_name → {ssh_conn_id, dest_user, secret_name}
+conn_map  = {}   # job_name → {ssh_conn_id, dest_user, secret_name, src_protocol, src_host, ...}
 extra_map = {}   # job_name → {s3_endpoint_url, ...}
 if os.path.exists(conn_ref):
     for line in open(conn_ref, encoding='utf-8'):
-        # main table: | job | nodeid → host | ssh_conn_id | dest_user | secret |
-        m = re.match(r'\|\s*(\S+)\s*\|[^|]*\|\s*`([^`]+)`\s*\|\s*`([^`]+)`\s*\|\s*`([^`]+)`\s*\|', line)
+        # main table — 5-col (direct) or 11-col (two-hop) format:
+        # | job | nodeid | ssh_conn_id | dest_user | secret | src_protocol | src_host | src_port | src_user | src_password_var | wilson_staging_dir |
+        m = re.match(r'\|\s*(\S+)\s*\|[^|]*\|\s*`([^`]+)`\s*\|\s*`([^`]+)`\s*\|\s*`([^`]+)`\s*\|(.*)', line)
         if m:
-            conn_map[m.group(1)] = {
-                "ssh_conn_id": m.group(2),
-                "dest_user":   m.group(3),   # FTP/SFTP destination login (Remote User column)
-                "secret_name": m.group(4),
+            job          = m.group(1)
+            ssh_conn_id  = m.group(2)
+            dest_user    = m.group(3)
+            secret_name  = m.group(4)
+            rest         = m.group(5)
+            # parse optional two-hop columns from remaining pipe-delimited fields
+            extra_cols = [c.strip().strip('`') for c in rest.split('|') if c.strip() not in ('', '|')]
+            def col(idx): return extra_cols[idx] if idx < len(extra_cols) else ''
+            conn_map[job] = {
+                "ssh_conn_id":       ssh_conn_id,
+                "dest_user":         dest_user,
+                "secret_name":       secret_name,
+                "src_protocol":      col(0),
+                "src_host":          col(1),
+                "src_port":          col(2),
+                "src_user":          col(3),
+                "src_password_var":  col(4),
+                "wilson_staging_dir":col(5),
             }
         # additional endpoints table: | job | Type | Value |
         e = re.match(r'\|\s*(\S+)\s*\|\s*S3 private endpoint\s*\|\s*`([^`]+)`\s*\|', line)
@@ -409,8 +424,15 @@ for fname in sorted(os.listdir(input_dir)):
                 "ssh_conn_id":     conn.get("ssh_conn_id", ""),
                 "dest_user":       conn.get("dest_user", ""),   # from connection_id_nonprod.md Remote User column
                 "secret_name":     conn.get("secret_name", ""),
-                "s3_endpoint_url": extra.get("s3_endpoint_url", ""),  # from ## Additional endpoints table
-                "transfers":       slots,
+                "s3_endpoint_url":    extra.get("s3_endpoint_url", ""),
+                # two-hop relay fields (empty when direct)
+                "src_protocol":      conn.get("src_protocol", ""),
+                "src_host":          conn.get("src_host", ""),
+                "src_port":          conn.get("src_port", ""),
+                "src_user":          conn.get("src_user", ""),
+                "src_password_var":  conn.get("src_password_var", ""),
+                "wilson_staging_dir":conn.get("wilson_staging_dir", ""),
+                "transfers":         slots,
             }
             catalogue.append(entry)
 
@@ -491,6 +513,16 @@ for entry in catalogue:
         else:
             conf["ssh_conn_id"] = entry["ssh_conn_id"]
 
+        # two-hop relay fields — only include when src_protocol is set
+        if entry.get("src_protocol"):
+            conf["src_protocol"]       = entry["src_protocol"]
+            conf["src_host"]           = entry["src_host"]
+            conf["src_port"]           = entry["src_port"]
+            conf["src_user"]           = entry["src_user"]
+            conf["src_password_var"]   = entry["src_password_var"]
+            conf["wilson_staging_dir"] = entry["wilson_staging_dir"]
+            conf["wilson_cleanup"]     = "true"
+
         label = f"{entry['scenario']}_slot{slot['slot']}"
         if entry["transfer_num"] == 1:
             label = entry["scenario"]
@@ -516,6 +548,26 @@ with open(out_trigger, 'w', encoding='utf-8') as f:
     json.dump(trigger_conf, f, indent=2, ensure_ascii=False)
 
 print(f"[OK] Written {len(trigger_conf)} trigger conf(s) → {out_trigger}")
+
+# ── generate one conf JSON per scenario ─────────────────────────────────────
+conf_dir = os.path.join(os.path.dirname(out_json), "conf")
+os.makedirs(conf_dir, exist_ok=True)
+
+by_scenario = {}
+for item in trigger_conf:
+    by_scenario.setdefault(item["_scenario"], []).append(item)
+
+for scenario, items in by_scenario.items():
+    out_path = os.path.join(conf_dir, f"{scenario}.json")
+    with open(out_path, 'w', encoding='utf-8') as f:
+        # single-slot: write the conf object directly; multi-slot: write list
+        if len(items) == 1:
+            json.dump(items[0]["conf"], f, indent=2, ensure_ascii=False)
+        else:
+            json.dump([{"_slot": i["_slot"], "_direction": i["_direction"], "_notes": i["_notes"], "conf": i["conf"]} for i in items], f, indent=2, ensure_ascii=False)
+    print(f"[OK] {scenario} → {out_path}")
+
+print(f"[OK] Written {len(by_scenario)} per-scenario conf(s) → {conf_dir}/")
 PYEOF
 
     STATUS=$?
@@ -523,8 +575,9 @@ PYEOF
     OUT_TRIGGER="${SCRIPT_DIR}/output/reusable/test_nonprod_trigger_conf.json"
     if [ ${STATUS} -eq 0 ]; then
         pass "Scan complete"
-        info "Catalogue  : ${OUT_JSON}"
+        info "Catalogue   : ${OUT_JSON}"
         info "Trigger conf: ${OUT_TRIGGER}"
+        info "Per-scenario: ${SCRIPT_DIR}/output/reusable/conf/<scenario>.json"
         info "$(python3 -c "
 import json
 d = json.load(open('${OUT_JSON}'))

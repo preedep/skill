@@ -104,10 +104,20 @@ dag = DAG(
     on_success_callback=success_callback if _enable_email_notification_success else None,
     on_failure_callback=failure_callback if _enable_email_notification_fail else None,
     params={
-        # ── Connection ─────────────────────────────────────────────────────────
-        "ssh_conn_id":          "",    # Airflow SSH connection ID to source Unix server (required)
+        # ── Relay / transit server ─────────────────────────────────────────────
+        "ssh_conn_id":          "",    # Airflow SSH conn ID to the operator target (source server OR relay/Wilson)
+        # ── Source pull — two-hop via relay (Wilson) ───────────────────────────
+        # Leave src_protocol empty or "local" when source is directly accessible on the SSH target (NAS mount, same host).
+        # Set src_protocol to sftp/ftps/ftp to have the relay pull from a remote source server first.
+        "src_protocol":         "",    # "" | "local" | "sftp" | "ftps" | "ftp"  (empty = local, no relay pull)
+        "src_host":             "",    # source server hostname (e.g. "benseni") — required when src_protocol != local
+        "src_port":             "",    # source port: 22 (sftp) | 21 (ftp/ftps)
+        "src_user":             "",    # source username
+        "src_password_var":     "",    # Airflow Variable key holding source password
+        "wilson_staging_dir":   "",    # staging dir on relay server (e.g. /tmp/airflow/staging/job_xyz) — required for two-hop
+        "wilson_cleanup":       "true",# "true" | "false" — delete staging files after push to destination
         # ── Transfer ───────────────────────────────────────────────────────────
-        "source_path":          "",    # source file path / glob on source server (required)
+        "source_path":          "",    # file path / glob on source server (two-hop) or on SSH target (local)
         "dest_host":            "",    # destination server hostname or IP (ftp/ftps/sftp only)
         "dest_port":            "",    # destination port: 21 (ftp/ftps) | 22 (sftp)
         "dest_protocol":        "",    # "ftp" | "ftps" | "sftp" | "s3" | "blob"
@@ -177,8 +187,15 @@ No infrastructure is hardcoded. Project team owns this DAG.
 
 | Parameter | Required | Description |
 |---|---|---|
-| `ssh_conn_id` | ✅ | Airflow SSH connection ID to the **source** Unix server |
-| `source_path` | ✅ | File path or glob on source server (e.g. `/data/*.csv`) |
+| `ssh_conn_id` | ✅ | Airflow SSH conn ID to the **operator target** (source server for direct; relay/Wilson for two-hop) |
+| `src_protocol` | ➖ | `""` or `"local"` = direct (no relay pull); `"sftp"` / `"ftps"` / `"ftp"` = two-hop relay pull |
+| `src_host` | ✅† | Source server hostname (e.g. `"benseni"`) — †required when `src_protocol` is sftp/ftps/ftp |
+| `src_port` | ✅† | Source port: `22` (sftp) or `21` (ftp/ftps) |
+| `src_user` | ✅† | Source username |
+| `src_password_var` | ✅† | Airflow Variable key holding source password |
+| `wilson_staging_dir` | ✅† | Staging dir on relay server (e.g. `/tmp/airflow/staging/job_xyz`) |
+| `wilson_cleanup` | ➖ | `"true"` (default) = delete staging files after push; `"false"` = keep |
+| `source_path` | ✅ | File path or glob — on source server (two-hop) or on SSH target (local/NAS) |
 | `dest_host` | ✅* | Destination hostname or IP (*ftp/ftps/sftp only) |
 | `dest_port` | ✅* | Destination port: `21` (ftp/ftps) or `22` (sftp) |
 | `dest_protocol` | ✅ | Protocol: `ftp` or `ftps` or `sftp` or `s3` or `blob` |
@@ -233,24 +250,31 @@ No infrastructure is hardcoded. Project team owns this DAG.
 ## DAG Workflow
 
 ```
-ftp/ftps/sftp:   start → pre_command → validate_source → transfer_files → verify → post_transfer_action → post_command → end
-s3/blob:         start → pre_command → validate_source → transfer_files → verify → post_transfer_action → post_command → end
-archive/cleanup: start → pre_command → [validate: skip] → [transfer: skip] → [verify: skip] → post_transfer_action → post_command → end
+direct (src_protocol empty/local):
+  start → validate_params → pre_command → pull_from_source[skip] → validate_source → transfer_files → verify → post_transfer_action → post_command → end
+
+two-hop via relay (src_protocol=sftp/ftps/ftp):
+  start → validate_params → pre_command → pull_from_source → validate_source[staging] → transfer_files[staging→dest] → verify → post_transfer_action[+wilson cleanup] → post_command → end
+
+archive/cleanup:
+  start → validate_params → pre_command → pull_from_source[skip] → validate_source[skip] → transfer_files[skip] → verify[skip] → post_transfer_action → post_command → end
 ```
 
 ---
 
 ## Notes
 
-- lftp must be installed on the source Unix server (for ftp/ftps/sftp)
-- AWS CLI must be installed on the source Unix server (for s3)
-- azcopy must be installed on the source Unix server (for blob)
+- lftp must be installed on the SSH target server (for ftp/ftps/sftp source pull and dest push)
+- AWS CLI must be installed on the SSH target server (for s3)
+- azcopy must be installed on the SSH target server (for blob)
 - `password_var_name` must be an Airflow Variable key — password is never hardcoded
-- FTPS uses explicit TLS (AUTH TLS) — use `dest_protocol="ftps"`, port `991`
+- FTPS uses explicit TLS (AUTH TLS) — use `dest_protocol="ftps"` or `src_protocol="ftps"`, port `21` or `991`
 - MVS dataset names in `dest_path` (no leading `/`) are single-quoted automatically
 - Blob auth: if `blob_sas_var_name` is set, SAS token is used; otherwise managed identity (`azcopy login --identity`)
 - `blob_identity_client_id` selects user-assigned MI; leave empty for system-assigned MI
 - `s3_endpoint_url` is required for private VPC endpoint
+- **Two-hop**: set `src_protocol=sftp/ftps/ftp` to have the relay server pull files from source before pushing to dest
+- **Two-hop cleanup**: `wilson_cleanup=true` (default) deletes `wilson_staging_dir` files after successful push
     """
 )
 
@@ -285,6 +309,11 @@ def _validate_params(**context):
 
     # ssh_conn_id always required
     need('ssh_conn_id')
+
+    # two-hop relay pull validation
+    src_proto = str(p.get('src_protocol', '')).strip().lower()
+    if src_proto and src_proto != 'local':
+        need('src_host', 'src_port', 'src_user', 'src_password_var', 'wilson_staging_dir')
 
     # FTP / FTPS / SFTP
     if d in ('upload', 'upload_delete', 'upload_rename', 'upload_move',
@@ -373,6 +402,111 @@ BASH
         on_failure_callback=failure_callback,
     )
 
+    # Pull from source server to relay staging — self-skips when src_protocol is empty or "local"
+    task_pull_from_source = DynamicSSHOperator(
+        task_id='pull_from_source',
+        ssh_conn_id="{{ params.ssh_conn_id }}",
+        command="""
+bash -s << 'BASH'
+set -euo pipefail
+trap 'echo "[ERROR] pull_from_source failed at line $LINENO — exit $?"' ERR
+
+SRC_PROTOCOL="{{ params.src_protocol }}"
+SRC_HOST="{{ params.src_host }}"
+SRC_PORT="{{ params.src_port }}"
+SRC_USER="{{ params.src_user }}"
+SRC_PASS="{{ var.value.get(params.src_password_var, "") }}"
+# WARNING: password visible in Airflow rendered template log
+SOURCE_PATH="{{ params.source_path }}"
+STAGING_DIR="{{ params.wilson_staging_dir }}/{{ run_id | replace('/', '_') | replace(':', '_') }}"
+
+# self-skip when no relay pull needed
+if [ -z "${SRC_PROTOCOL}" ] || [ "${SRC_PROTOCOL}" = "local" ]; then
+    echo "[INFO] pull_from_source: skipped (src_protocol=${SRC_PROTOCOL:-local})"
+    exit 0
+fi
+
+if [ -z "${STAGING_DIR}" ]; then
+    echo "[ERROR] wilson_staging_dir is required for two-hop transfer"
+    exit 1
+fi
+
+echo "[INFO] === Pull from Source Server ==="
+echo "[INFO] Protocol    : ${SRC_PROTOCOL}"
+echo "[INFO] Source host : ${SRC_HOST}:${SRC_PORT}"
+echo "[INFO] Source user : ${SRC_USER} (password suppressed)"
+echo "[INFO] Source path : ${SOURCE_PATH}"
+echo "[INFO] Staging dir : ${STAGING_DIR}"
+echo "[DEBUG] Relay host : $(hostname)"
+
+mkdir -p "${STAGING_DIR}"
+
+LFTP_SCRIPT=$(mktemp /tmp/lftpscript_src.XXXXXX)
+
+case "${SRC_PROTOCOL}" in
+    ftps)
+        echo "[INFO] Action : lftp ftps mget ${SRC_HOST}:${SOURCE_PATH} → ${STAGING_DIR}"
+        cat > "${LFTP_SCRIPT}" << LFTPSCRIPT
+set ssl:verify-certificate false
+set ssl:ca-file ""
+set ftp:ssl-force true
+set ftp:ssl-auth TLS
+set ftp:ssl-protect-data true
+set ftp:passive-mode yes
+set cmd:verbose false
+set xfer:log true
+set xfer:clobber true
+open -u ${SRC_USER},${SRC_PASS} ftp://${SRC_HOST}:${SRC_PORT}
+lcd ${STAGING_DIR}
+mget ${SOURCE_PATH}
+bye
+LFTPSCRIPT
+        ;;
+    ftp)
+        echo "[INFO] Action : lftp ftp mget ${SRC_HOST}:${SOURCE_PATH} → ${STAGING_DIR}"
+        cat > "${LFTP_SCRIPT}" << LFTPSCRIPT
+set ftp:passive-mode yes
+set cmd:verbose false
+set xfer:log true
+set xfer:clobber true
+open -u ${SRC_USER},${SRC_PASS} ftp://${SRC_HOST}:${SRC_PORT}
+lcd ${STAGING_DIR}
+mget ${SOURCE_PATH}
+bye
+LFTPSCRIPT
+        ;;
+    sftp)
+        echo "[INFO] Action : lftp sftp mget ${SRC_HOST}:${SOURCE_PATH} → ${STAGING_DIR}"
+        cat > "${LFTP_SCRIPT}" << LFTPSCRIPT
+set sftp:auto-confirm true
+set cmd:verbose false
+set xfer:log true
+set xfer:clobber true
+open -u ${SRC_USER},${SRC_PASS} sftp://${SRC_HOST}:${SRC_PORT}
+lcd ${STAGING_DIR}
+mget ${SOURCE_PATH}
+bye
+LFTPSCRIPT
+        ;;
+    *)
+        echo "[ERROR] Unsupported src_protocol: ${SRC_PROTOCOL} (use sftp, ftps, ftp, or leave empty for local)"
+        rm -f "${LFTP_SCRIPT}"; exit 1
+        ;;
+esac
+
+lftp -f "${LFTP_SCRIPT}"
+rm -f "${LFTP_SCRIPT}"
+
+FILE_COUNT=$(ls "${STAGING_DIR}" 2>/dev/null | wc -l | tr -d ' ')
+TOTAL_SIZE=$(du -sh "${STAGING_DIR}" 2>/dev/null | awk '{print $1}' || echo 'n/a')
+ls -lh "${STAGING_DIR}" 2>/dev/null | grep -v '^total' | awk '{print "[DEBUG]   " $0}' || true
+echo "[INFO] Pull completed — ${FILE_COUNT} file(s), total size: ${TOTAL_SIZE} → ${STAGING_DIR}"
+BASH
+""",
+        cmd_timeout=1800,
+        on_failure_callback=failure_callback,
+    )
+
     # Validate source files exist — self-skips for archive_only / cleanup_only / blob_download / s3_download
     task_validate_source = DynamicSSHOperator(
         task_id='validate_source_files',
@@ -383,6 +517,8 @@ set -euo pipefail
 trap 'echo "[ERROR] Validation failed at line $LINENO — exit $?"' ERR
 
 DIRECTION="{{ params.direction }}"
+SRC_PROTOCOL="{{ params.src_protocol }}"
+STAGING_DIR="{{ params.wilson_staging_dir }}/{{ run_id | replace('/', '_') | replace(':', '_') }}"
 SRC_PATH="{{ params.source_path }}"
 
 case "${DIRECTION}" in
@@ -392,18 +528,26 @@ case "${DIRECTION}" in
         ;;
 esac
 
+# two-hop: validate staging dir; direct: validate source_path
+if [ -n "${SRC_PROTOCOL}" ] && [ "${SRC_PROTOCOL}" != "local" ]; then
+    CHECK_PATH="${STAGING_DIR}"
+    echo "[INFO] validate_source: two-hop mode — checking staging dir"
+else
+    CHECK_PATH="${SRC_PATH}"
+fi
+
 echo "[INFO] === Source File Validation ==="
-echo "[INFO] Source path : ${SRC_PATH}"
+echo "[INFO] Check path  : ${CHECK_PATH}"
 echo "[DEBUG] Agent host : $(hostname)"
 echo "[DEBUG] Agent user : $(whoami)"
 
-if ls ${SRC_PATH} 1>/dev/null 2>&1; then
-    FILE_COUNT=$(ls ${SRC_PATH} 2>/dev/null | wc -l | tr -d ' ')
-    TOTAL_SIZE=$(du -sh ${SRC_PATH} 2>/dev/null | awk '{print $1}' || echo 'n/a')
-    ls -lh ${SRC_PATH} | awk '{print "[DEBUG]   " $0}'
+if ls ${CHECK_PATH} 1>/dev/null 2>&1; then
+    FILE_COUNT=$(ls ${CHECK_PATH} 2>/dev/null | wc -l | tr -d ' ')
+    TOTAL_SIZE=$(du -sh ${CHECK_PATH} 2>/dev/null | awk '{print $1}' || echo 'n/a')
+    ls -lh ${CHECK_PATH} | awk '{print "[DEBUG]   " $0}'
     echo "[INFO] Validation passed — ${FILE_COUNT} file(s), total size: ${TOTAL_SIZE}"
 else
-    echo "[ERROR] No source files found: ${SRC_PATH}"
+    echo "[ERROR] No source files found: ${CHECK_PATH}"
     exit 1
 fi
 BASH
@@ -422,7 +566,9 @@ set -euo pipefail
 trap 'echo "[ERROR] Transfer failed at line $LINENO — exit $?"' ERR
 
 DIRECTION="{{ params.direction }}"
-SRC_PATH="{{ params.source_path }}"
+SRC_PROTOCOL="{{ params.src_protocol }}"
+STAGING_DIR="{{ params.wilson_staging_dir }}/{{ run_id | replace('/', '_') | replace(':', '_') }}"
+ORIG_SRC_PATH="{{ params.source_path }}"
 DEST_HOST="{{ params.dest_host }}"
 DEST_PORT="{{ params.dest_port }}"
 DEST_PROTOCOL="{{ params.dest_protocol }}"
@@ -437,6 +583,23 @@ case "${DIRECTION}" in
         exit 0
         ;;
 esac
+
+# two-hop: use staging dir as source; direct: use original source_path
+# S3/blob AWS CLI needs the directory path (--recursive handles contents)
+# lftp needs a glob pattern (mget/put with wildcard)
+if [ -n "${SRC_PROTOCOL}" ] && [ "${SRC_PROTOCOL}" != "local" ]; then
+    case "${DEST_PROTOCOL}" in
+        s3|blob|"")
+            SRC_PATH="${STAGING_DIR}"
+            ;;
+        *)
+            SRC_PATH="${STAGING_DIR}/*"
+            ;;
+    esac
+    echo "[INFO] transfer_files: two-hop mode — source is staging dir: ${SRC_PATH}"
+else
+    SRC_PATH="${ORIG_SRC_PATH}"
+fi
 
 # MVS datasets have no leading slash — wrap in single quotes for mainframe FTP
 mvs_quote() {
@@ -880,7 +1043,10 @@ set -euo pipefail
 trap 'echo "[ERROR] Post-transfer action failed at line $LINENO — exit $?"' ERR
 
 DIRECTION="{{ params.direction }}"
+SRC_PROTOCOL="{{ params.src_protocol }}"
 SRC_PATH="{{ params.source_path }}"
+STAGING_DIR="{{ params.wilson_staging_dir }}/{{ run_id | replace('/', '_') | replace(':', '_') }}"
+WILSON_CLEANUP="{{ params.wilson_cleanup }}"
 DEST_PATH="{{ params.dest_path }}"
 NEW_NAME="{{ params.new_name }}"
 ARCHIVE_PATH="{{ params.archive_path }}"
@@ -1040,6 +1206,17 @@ case "${DIRECTION}" in
         ;;
 esac
 
+# Wilson staging cleanup — only for two-hop transfers
+if [ -n "${SRC_PROTOCOL}" ] && [ "${SRC_PROTOCOL}" != "local" ] && [ -n "${STAGING_DIR}" ]; then
+    if [ "${WILSON_CLEANUP}" = "true" ]; then
+        STAGED_COUNT=$(ls "${STAGING_DIR}" 2>/dev/null | wc -l | tr -d ' ')
+        rm -rf "${STAGING_DIR}"
+        echo "[INFO] Wilson staging cleanup — ${STAGED_COUNT} file(s) removed from ${STAGING_DIR}"
+    else
+        echo "[INFO] Wilson staging cleanup skipped (wilson_cleanup=false) — files kept at ${STAGING_DIR}"
+    fi
+fi
+
 rm -f "${LFTP_RC}"
 echo "[INFO] Post-transfer action completed"
 BASH
@@ -1083,4 +1260,4 @@ BASH
 
     ###################### Task Dependencies ######################
 
-    start >> task_validate_params >> task_precomm >> task_validate_source >> task_transfer_files >> task_verify_transfer >> task_post_transfer >> task_postcomm >> end
+    start >> task_validate_params >> task_precomm >> task_pull_from_source >> task_validate_source >> task_transfer_files >> task_verify_transfer >> task_post_transfer >> task_postcomm >> end

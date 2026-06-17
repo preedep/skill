@@ -28,6 +28,8 @@ upload_example.sh
 
 .idea/
 skills/*/templates/
+!skills/controlm2airflow/templates/file-transfer-reusable-unix-dynamic/dags/project_file_transfer_unix_dynamic.py
+!skills/controlm2airflow/templates/file-transfer-reusable-win-dynamic/dags/project_file_transfer_win_dynamic.py
 skills/*/research/
 skills/*/raws/
 .venv/
@@ -39,6 +41,8 @@ Cargo.toml
 Cargo.lock
 src/
 *.py
+!skills/controlm2airflow/templates/file-transfer-reusable-unix-dynamic/dags/project_file_transfer_unix_dynamic.py
+!skills/controlm2airflow/templates/file-transfer-reusable-win-dynamic/dags/project_file_transfer_win_dynamic.py
 
 # Added by cargo
 
